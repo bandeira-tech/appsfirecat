@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Architecture Showdown: Apps Host Design</title>
+  <style>
+    :root {
+      --alpha-primary: #6366f1;
+      --alpha-secondary: #818cf8;
+      --alpha-bg: #eef2ff;
+      --beta-primary: #f59e0b;
+      --beta-secondary: #fbbf24;
+      --beta-bg: #fffbeb;
+      --neutral: #64748b;
+      --text: #1e293b;
+      --text-light: #64748b;
+      --bg: #f8fafc;
+      --white: #ffffff;
+      --border: #e2e8f0;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 3rem;
+    }
+
+    header h1 {
+      font-size: 2.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    header p {
+      color: var(--text-light);
+      font-size: 1.1rem;
+    }
+
+    .vision-box {
+      background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+      color: white;
+      padding: 2rem;
+      border-radius: 1rem;
+      margin-bottom: 3rem;
+    }
+
+    .vision-box h2 {
+      margin-bottom: 1rem;
+      font-size: 1.3rem;
+    }
+
+    .vision-box ul {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 0.75rem;
+      list-style: none;
+    }
+
+    .vision-box li {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .vision-box li::before {
+      content: "→";
+      color: #60a5fa;
+    }
+
+    .contenders {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem;
+      margin-bottom: 3rem;
+    }
+
+    .contender {
+      background: var(--white);
+      border-radius: 1rem;
+      padding: 2rem;
+      border: 2px solid var(--border);
+    }
+
+    .contender.alpha {
+      border-color: var(--alpha-primary);
+    }
+
+    .contender.beta {
+      border-color: var(--beta-primary);
+    }
+
+    .contender-header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .contender-badge {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 1.5rem;
+      color: white;
+    }
+
+    .alpha .contender-badge {
+      background: var(--alpha-primary);
+    }
+
+    .beta .contender-badge {
+      background: var(--beta-primary);
+    }
+
+    .contender h2 {
+      font-size: 1.5rem;
+    }
+
+    .contender .tagline {
+      color: var(--text-light);
+      font-size: 0.9rem;
+    }
+
+    .contender-philosophy {
+      background: var(--bg);
+      padding: 1rem;
+      border-radius: 0.5rem;
+      margin-bottom: 1.5rem;
+      font-style: italic;
+      border-left: 3px solid;
+    }
+
+    .alpha .contender-philosophy {
+      border-color: var(--alpha-primary);
+      background: var(--alpha-bg);
+    }
+
+    .beta .contender-philosophy {
+      border-color: var(--beta-primary);
+      background: var(--beta-bg);
+    }
+
+    .contender h3 {
+      font-size: 1rem;
+      margin-bottom: 0.5rem;
+      color: var(--text-light);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .contender ul {
+      list-style: none;
+      margin-bottom: 1.5rem;
+    }
+
+    .contender li {
+      padding: 0.25rem 0;
+      padding-left: 1.5rem;
+      position: relative;
+    }
+
+    .contender li::before {
+      content: "•";
+      position: absolute;
+      left: 0;
+      font-weight: bold;
+    }
+
+    .alpha li::before {
+      color: var(--alpha-primary);
+    }
+
+    .beta li::before {
+      color: var(--beta-primary);
+    }
+
+    .comparison-table {
+      background: var(--white);
+      border-radius: 1rem;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      margin-bottom: 3rem;
+    }
+
+    .comparison-table h2 {
+      padding: 1.5rem;
+      background: var(--text);
+      color: white;
+      text-align: center;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 1rem 1.5rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+
+    th {
+      background: var(--bg);
+      font-weight: 600;
+      color: var(--text-light);
+    }
+
+    th:first-child {
+      width: 25%;
+    }
+
+    th:not(:first-child) {
+      width: 37.5%;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    td:nth-child(2) {
+      background: var(--alpha-bg);
+    }
+
+    td:nth-child(3) {
+      background: var(--beta-bg);
+    }
+
+    .same {
+      background: #f0fdf4 !important;
+    }
+
+    .same::after {
+      content: " ✓";
+      color: #22c55e;
+    }
+
+    .verdict {
+      display: inline-block;
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.25rem;
+      font-size: 0.8rem;
+      font-weight: 500;
+      margin-left: 0.5rem;
+    }
+
+    .verdict.alpha {
+      background: var(--alpha-bg);
+      color: var(--alpha-primary);
+    }
+
+    .verdict.beta {
+      background: var(--beta-bg);
+      color: var(--beta-primary);
+    }
+
+    .verdict.tie {
+      background: #f0fdf4;
+      color: #16a34a;
+    }
+
+    .code-block {
+      background: #1e293b;
+      color: #e2e8f0;
+      padding: 1rem;
+      border-radius: 0.5rem;
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 0.85rem;
+      overflow-x: auto;
+      margin: 1rem 0;
+    }
+
+    .code-block .comment {
+      color: #64748b;
+    }
+
+    .code-block .keyword {
+      color: #c084fc;
+    }
+
+    .code-block .string {
+      color: #4ade80;
+    }
+
+    .code-block .function {
+      color: #60a5fa;
+    }
+
+    .flow-diagram {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 2rem;
+      margin-bottom: 3rem;
+    }
+
+    .flow {
+      background: var(--white);
+      border-radius: 1rem;
+      padding: 1.5rem;
+      border: 2px solid var(--border);
+    }
+
+    .flow.alpha {
+      border-color: var(--alpha-primary);
+    }
+
+    .flow.beta {
+      border-color: var(--beta-primary);
+    }
+
+    .flow h3 {
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .flow-step {
+      display: flex;
+      align-items: flex-start;
+      gap: 1rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .step-num {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      font-weight: bold;
+      color: white;
+      flex-shrink: 0;
+    }
+
+    .alpha .step-num {
+      background: var(--alpha-primary);
+    }
+
+    .beta .step-num {
+      background: var(--beta-primary);
+    }
+
+    .step-content {
+      flex: 1;
+    }
+
+    .step-content strong {
+      display: block;
+      font-size: 0.9rem;
+    }
+
+    .step-content span {
+      font-size: 0.8rem;
+      color: var(--text-light);
+    }
+
+    .arrow {
+      text-align: center;
+      color: var(--text-light);
+      margin: 0.5rem 0;
+    }
+
+    .scorecard {
+      background: var(--white);
+      border-radius: 1rem;
+      padding: 2rem;
+      border: 1px solid var(--border);
+      margin-bottom: 3rem;
+    }
+
+    .scorecard h2 {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    .scores {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1rem;
+    }
+
+    .score-item {
+      text-align: center;
+      padding: 1rem;
+    }
+
+    .score-item h4 {
+      font-size: 0.9rem;
+      color: var(--text-light);
+      margin-bottom: 0.5rem;
+    }
+
+    .score-bar {
+      display: flex;
+      gap: 0.5rem;
+      justify-content: center;
+      margin-bottom: 0.5rem;
+    }
+
+    .score-fill {
+      height: 8px;
+      border-radius: 4px;
+      flex: 1;
+      max-width: 100px;
+    }
+
+    .score-fill.alpha {
+      background: var(--alpha-primary);
+    }
+
+    .score-fill.beta {
+      background: var(--beta-primary);
+    }
+
+    .score-fill.empty {
+      background: var(--border);
+    }
+
+    .score-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.8rem;
+      max-width: 220px;
+      margin: 0 auto;
+    }
+
+    .recommendation {
+      background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+      color: white;
+      padding: 2rem;
+      border-radius: 1rem;
+      text-align: center;
+    }
+
+    .recommendation h2 {
+      margin-bottom: 1rem;
+    }
+
+    .recommendation p {
+      max-width: 800px;
+      margin: 0 auto 1.5rem;
+      opacity: 0.9;
+    }
+
+    .recommendation .pick {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--beta-primary);
+      color: var(--text);
+      padding: 0.75rem 1.5rem;
+      border-radius: 2rem;
+      font-weight: 600;
+      font-size: 1.1rem;
+    }
+
+    @media (max-width: 768px) {
+      .contenders {
+        grid-template-columns: 1fr;
+      }
+
+      th:first-child {
+        width: 30%;
+      }
+
+      th:not(:first-child) {
+        width: 35%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Architecture Showdown</h1>
+      <p>Two approaches to Apps Host design, evaluated against B3nd/Firecat principles</p>
+    </header>
+
+    <div class="vision-box">
+      <h2>B3nd/Firecat Design Vision</h2>
+      <ul>
+        <li>User owns and controls their data</li>
+        <li>Client-side encryption by default</li>
+        <li>Deterministic keys from passwords/seeds</li>
+        <li>Network is untrusted storage</li>
+        <li>Ed25519 identity for every resource</li>
+        <li>Wallet-based authentication</li>
+        <li>Anyone can run nodes/hosts</li>
+        <li>No vendor lock-in</li>
+      </ul>
+    </div>
+
+    <div class="contenders">
+      <div class="contender alpha">
+        <div class="contender-header">
+          <div class="contender-badge">A</div>
+          <div>
+            <h2>Pure Shell</h2>
+            <div class="tagline">"The host is just a mirror"</div>
+          </div>
+        </div>
+        <div class="contender-philosophy">
+          "Trust no one. The host serves bytes, the browser does everything else.
+          True to B3nd's vision of user-controlled, client-encrypted data."
+        </div>
+        <h3>Core Decisions</h3>
+        <ul>
+          <li>Individual files in B3nd (CDN-friendly)</li>
+          <li>Shell serving for ALL encrypted content</li>
+          <li>Client-side decryption only</li>
+          <li>Host has NO private key</li>
+          <li>Auth via B3nd wallet or password-derived keys</li>
+          <li>Host is 100% stateless</li>
+        </ul>
+        <h3>Best For</h3>
+        <ul>
+          <li>E2E encrypted applications</li>
+          <li>Privacy-first products</li>
+          <li>Apps where users have wallets</li>
+          <li>Maximum decentralization</li>
+        </ul>
+      </div>
+
+      <div class="contender beta">
+        <div class="contender-header">
+          <div class="contender-badge">B</div>
+          <div>
+            <h2>Pragmatic Hybrid</h2>
+            <div class="tagline">"Meet users where they are"</div>
+          </div>
+        </div>
+        <div class="contender-philosophy">
+          "Real adoption requires practical tradeoffs. Host can decrypt for convenience,
+          but apps choose their trust model. B3nd stores everything, host serves smartly."
+        </div>
+        <h3>Core Decisions</h3>
+        <ul>
+          <li>Individual files in B3nd (CDN-friendly)</li>
+          <li>Direct serving for public + host-decrypted content</li>
+          <li>Shell available for E2E cases (optional)</li>
+          <li>Host HAS private key (apps encrypt to it)</li>
+          <li>Auth via host layer (OAuth, password, tokens)</li>
+          <li>Host is stateless (auth config from B3nd)</li>
+        </ul>
+        <h3>Best For</h3>
+        <ul>
+          <li>Corporate intranets</li>
+          <li>Preview/staging environments</li>
+          <li>Apps without wallet requirement</li>
+          <li>Faster adoption path</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="comparison-table">
+      <h2>Head-to-Head Comparison</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Aspect</th>
+            <th>A: Pure Shell</th>
+            <th>B: Pragmatic Hybrid</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Build Storage</strong></td>
+            <td class="same">Individual files in B3nd</td>
+            <td class="same">Individual files in B3nd</td>
+          </tr>
+          <tr>
+            <td><strong>Public Content</strong></td>
+            <td class="same">Direct serve, full CDN cache</td>
+            <td class="same">Direct serve, full CDN cache</td>
+          </tr>
+          <tr>
+            <td><strong>Encrypted Content</strong></td>
+            <td>Shell fetches + browser decrypts<span class="verdict alpha">More secure</span></td>
+            <td>Host decrypts + serves plaintext<span class="verdict beta">Simpler</span></td>
+          </tr>
+          <tr>
+            <td><strong>Host Key</strong></td>
+            <td>None required</td>
+            <td>X25519 keypair, apps encrypt to it</td>
+          </tr>
+          <tr>
+            <td><strong>Who Sees Plaintext</strong></td>
+            <td>Only user's browser<span class="verdict alpha">Zero trust</span></td>
+            <td>Host + browser<span class="verdict beta">Trust host</span></td>
+          </tr>
+          <tr>
+            <td><strong>Authentication</strong></td>
+            <td>In shell (wallet or password-derived key)</td>
+            <td>At host layer (OAuth, cookies, tokens)</td>
+          </tr>
+          <tr>
+            <td><strong>Session Storage</strong></td>
+            <td>Browser (sessionStorage/IndexedDB)</td>
+            <td>JWT cookie (stateless) or host config</td>
+          </tr>
+          <tr>
+            <td><strong>Initial Load (Encrypted)</strong></td>
+            <td>Shell → Auth → Decrypt → Render<span class="verdict beta">Slower</span></td>
+            <td>Auth → Serve decrypted<span class="verdict beta">Faster</span></td>
+          </tr>
+          <tr>
+            <td><strong>SEO for Private Content</strong></td>
+            <td>Not possible (JS-rendered)</td>
+            <td>Possible (server-rendered HTML)<span class="verdict beta">Better</span></td>
+          </tr>
+          <tr>
+            <td><strong>CDN Caching (Encrypted)</strong></td>
+            <td>Only shell cached</td>
+            <td>Decrypted responses cacheable<span class="verdict beta">Better</span></td>
+          </tr>
+          <tr>
+            <td><strong>Browser Requirements</strong></td>
+            <td>Modern (WebCrypto required)<span class="verdict beta">Limiting</span></td>
+            <td>Any browser works<span class="verdict beta">Inclusive</span></td>
+          </tr>
+          <tr>
+            <td><strong>Complexity</strong></td>
+            <td>Complex shell, simple host</td>
+            <td>Simple shell (optional), complex host</td>
+          </tr>
+          <tr>
+            <td><strong>B3nd Vision Alignment</strong></td>
+            <td>Perfect - client controls all<span class="verdict alpha">Purist</span></td>
+            <td>Good - B3nd stores, host serves<span class="verdict tie">Pragmatic</span></td>
+          </tr>
+          <tr>
+            <td><strong>Key Rotation</strong></td>
+            <td>User re-derives key (seamless)</td>
+            <td>Host key rotation needed (complex)<span class="verdict alpha">Simpler</span></td>
+          </tr>
+          <tr>
+            <td><strong>Multi-Host Support</strong></td>
+            <td>Trivial - any host serves same bytes</td>
+            <td>Encrypt to each host's key<span class="verdict alpha">Simpler</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 style="text-align: center; margin-bottom: 1.5rem;">Request Flows</h2>
+    <div class="flow-diagram">
+      <div class="flow alpha">
+        <h3><span style="color: var(--alpha-primary);">A</span> Encrypted Content Flow</h3>
+        <div class="flow-step">
+          <div class="step-num">1</div>
+          <div class="step-content">
+            <strong>User visits myapp.com</strong>
+            <span>Request hits CDN/Host</span>
+          </div>
+        </div>
+        <div class="flow-step">
+          <div class="step-num">2</div>
+          <div class="step-content">
+            <strong>Host serves shell</strong>
+            <span>Unencrypted loader.html + shell.js</span>
+          </div>
+        </div>
+        <div class="flow-step">
+          <div class="step-num">3</div>
+          <div class="step-content">
+            <strong>Shell prompts for auth</strong>
+            <span>Password input or wallet connect</span>
+          </div>
+        </div>
+        <div class="flow-step">
+          <div class="step-num">4</div>
+          <div class="step-content">
+            <strong>Shell derives key</strong>
+            <span>PBKDF2(password) or wallet key</span>
+          </div>
+        </div>
+        <div class="flow-step">
+          <div class="step-num">5</div>
+          <div class="step-content">
+            <strong>Shell fetches encrypted content</strong>
+            <span>GET /encrypted/app.html.enc</span>
+          </div>
+        </div>
+        <div class="flow-step">
+          <div class="step-num">6</div>
+          <div class="step-content">
+            <strong>Browser decrypts</strong>
+            <span>WebCrypto AES-GCM</span>
+          </div>
+        </div>
+        <div class="flow-step">
+          <div class="step-num">7</div>
+          <div class="step-content">
+            <strong>Shell renders app</strong>
+            <span>Inject into DOM</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="flow beta">
+        <h3><span style="color: var(--beta-primary);">B</span> Encrypted Content Flow</h3>
+        <div class="flow-step">
+          <div class="step-num">1</div>
+          <div class="step-content">
+            <strong>User visits myapp.com</strong>
+            <span>Request hits CDN/Host</span>
+          </div>
+        </div>
+        <div class="flow-step">
+          <div class="step-num">2</div>
+          <div class="step-content">
+            <strong>Host checks auth</strong>
+            <span>Cookie/token validation</span>
+          </div>
+        </div>
+        <div class="flow-step">
+          <div class="step-num">3</div>
+          <div class="step-content">
+            <strong>No auth? Redirect to login</strong>
+            <span>OAuth or password form</span>
+          </div>
+        </div>
+        <div class="flow-step">
+          <div class="step-num">4</div>
+          <div class="step-content">
+            <strong>User authenticates</strong>
+            <span>Host sets session cookie</span>
+          </div>
+        </div>
+        <div class="flow-step">
+          <div class="step-num">5</div>
+          <div class="step-content">
+            <strong>Host reads encrypted from B3nd</strong>
+            <span>Fetches .enc file</span>
+          </div>
+        </div>
+        <div class="flow-step">
+          <div class="step-num">6</div>
+          <div class="step-content">
+            <strong>Host decrypts</strong>
+            <span>Using its private key</span>
+          </div>
+        </div>
+        <div class="flow-step">
+          <div class="step-num">7</div>
+          <div class="step-content">
+            <strong>Host serves plaintext</strong>
+            <span>Normal HTTP response</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="scorecard">
+      <h2>Scorecard</h2>
+      <div class="scores">
+        <div class="score-item">
+          <h4>Security / Trust Model</h4>
+          <div class="score-bar">
+            <div class="score-fill alpha"></div>
+            <div class="score-fill empty"></div>
+          </div>
+          <div class="score-labels">
+            <span style="color: var(--alpha-primary);">A wins</span>
+            <span></span>
+          </div>
+        </div>
+        <div class="score-item">
+          <h4>Developer Experience</h4>
+          <div class="score-bar">
+            <div class="score-fill empty"></div>
+            <div class="score-fill beta"></div>
+          </div>
+          <div class="score-labels">
+            <span></span>
+            <span style="color: var(--beta-primary);">B wins</span>
+          </div>
+        </div>
+        <div class="score-item">
+          <h4>Performance</h4>
+          <div class="score-bar">
+            <div class="score-fill empty"></div>
+            <div class="score-fill beta"></div>
+          </div>
+          <div class="score-labels">
+            <span></span>
+            <span style="color: var(--beta-primary);">B wins</span>
+          </div>
+        </div>
+        <div class="score-item">
+          <h4>B3nd Alignment</h4>
+          <div class="score-bar">
+            <div class="score-fill alpha"></div>
+            <div class="score-fill empty"></div>
+          </div>
+          <div class="score-labels">
+            <span style="color: var(--alpha-primary);">A wins</span>
+            <span></span>
+          </div>
+        </div>
+        <div class="score-item">
+          <h4>Adoption Ease</h4>
+          <div class="score-bar">
+            <div class="score-fill empty"></div>
+            <div class="score-fill beta"></div>
+          </div>
+          <div class="score-labels">
+            <span></span>
+            <span style="color: var(--beta-primary);">B wins</span>
+          </div>
+        </div>
+        <div class="score-item">
+          <h4>Operational Simplicity</h4>
+          <div class="score-bar">
+            <div class="score-fill alpha"></div>
+            <div class="score-fill empty"></div>
+          </div>
+          <div class="score-labels">
+            <span style="color: var(--alpha-primary);">A wins</span>
+            <span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="comparison-table">
+      <h2>Code Comparison: Handling Encrypted Request</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Component</th>
+            <th>A: Pure Shell</th>
+            <th>B: Pragmatic Hybrid</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Host Handler</strong></td>
+            <td>
+              <div class="code-block">
+<span class="comment">// Host just serves bytes</span>
+<span class="keyword">async function</span> <span class="function">handle</span>(req) {
+  <span class="keyword">const</span> path = resolvePath(req);
+  <span class="keyword">const</span> content = <span class="keyword">await</span> b3nd.read(path);
+  <span class="comment">// No decryption, no auth check</span>
+  <span class="keyword">return new</span> Response(content);
+}
+              </div>
+            </td>
+            <td>
+              <div class="code-block">
+<span class="comment">// Host decrypts after auth</span>
+<span class="keyword">async function</span> <span class="function">handle</span>(req) {
+  <span class="keyword">if</span> (!validateAuth(req)) {
+    <span class="keyword">return</span> redirectToLogin();
+  }
+  <span class="keyword">const</span> encrypted = <span class="keyword">await</span> b3nd.read(path);
+  <span class="keyword">const</span> plain = <span class="keyword">await</span> decrypt(encrypted);
+  <span class="keyword">return new</span> Response(plain);
+}
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><strong>Client Code</strong></td>
+            <td>
+              <div class="code-block">
+<span class="comment">// Shell handles everything</span>
+<span class="keyword">const</span> key = <span class="keyword">await</span> deriveKey(password);
+<span class="keyword">const</span> enc = <span class="keyword">await</span> fetch(<span class="string">'/app.enc'</span>);
+<span class="keyword">const</span> dec = <span class="keyword">await</span> crypto.decrypt(enc, key);
+document.body.innerHTML = dec;
+              </div>
+            </td>
+            <td>
+              <div class="code-block">
+<span class="comment">// Normal page load</span>
+<span class="comment">// (after login redirect)</span>
+
+<span class="comment">// Nothing special needed!</span>
+<span class="comment">// Host served decrypted HTML</span>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><strong>Build Encryption</strong></td>
+            <td>
+              <div class="code-block">
+<span class="comment">// Encrypt to user-derived key</span>
+<span class="keyword">const</span> key = deriveFromSeed(appSalt);
+<span class="keyword">for</span> (file <span class="keyword">of</span> files) {
+  <span class="keyword">const</span> enc = encrypt(file, key);
+  <span class="keyword">await</span> b3nd.write(uri, enc);
+}
+              </div>
+            </td>
+            <td>
+              <div class="code-block">
+<span class="comment">// Encrypt to host's public key</span>
+<span class="keyword">const</span> hostKey = <span class="keyword">await</span> getHostPubkey();
+<span class="keyword">const</span> contentKey = randomKey();
+<span class="keyword">const</span> wrapped = encryptTo(contentKey, hostKey);
+<span class="keyword">await</span> b3nd.write(<span class="string">'.host-key'</span>, wrapped);
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="comparison-table">
+      <h2>Use Case Fit</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Use Case</th>
+            <th>A: Pure Shell</th>
+            <th>B: Pragmatic Hybrid</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Public marketing site</strong></td>
+            <td class="same">Direct serve, no encryption</td>
+            <td class="same">Direct serve, no encryption</td>
+          </tr>
+          <tr>
+            <td><strong>Corporate intranet</strong></td>
+            <td>Works, but requires wallet/password in shell</td>
+            <td>Natural fit - SSO integration at host<span class="verdict beta">Better fit</span></td>
+          </tr>
+          <tr>
+            <td><strong>E2E encrypted notes app</strong></td>
+            <td>Perfect - each user has their key<span class="verdict alpha">Better fit</span></td>
+            <td>Would need shell anyway for user keys</td>
+          </tr>
+          <tr>
+            <td><strong>Staging/preview</strong></td>
+            <td>Password-protected shell works</td>
+            <td>Simple password at host layer<span class="verdict beta">Simpler</span></td>
+          </tr>
+          <tr>
+            <td><strong>Paid subscription site</strong></td>
+            <td>Complex - per-user key wrapping<span class="verdict beta">Hard</span></td>
+            <td>Host validates subscription, serves<span class="verdict beta">Easier</span></td>
+          </tr>
+          <tr>
+            <td><strong>Personal encrypted blog</strong></td>
+            <td>Owner decrypts in shell to edit<span class="verdict alpha">Natural</span></td>
+            <td>Owner auth at host, edits normally</td>
+          </tr>
+          <tr>
+            <td><strong>Multi-host CDN setup</strong></td>
+            <td>Trivial - all hosts serve same bytes<span class="verdict alpha">Easy</span></td>
+            <td>Must encrypt to each host key<span class="verdict alpha">Complex</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="recommendation">
+      <h2>Recommendation</h2>
+      <p>
+        Both architectures have merit. <strong>A (Pure Shell)</strong> is more aligned with B3nd's
+        zero-trust philosophy but creates friction for mainstream use cases.
+        <strong>B (Pragmatic Hybrid)</strong> sacrifices some purity for practical adoption.
+      </p>
+      <p>
+        The key insight: <strong>they share 80% of the design</strong> (individual files, public content serving,
+        B3nd as source of truth). The difference is only in how encrypted content is handled.
+      </p>
+      <p>
+        <strong>Suggested path:</strong> Implement B as the default (easier adoption),
+        but design the system so apps can opt into A's pure shell model when needed.
+        The manifest can declare <code>"serving": "direct"</code> or <code>"serving": "shell"</code>.
+      </p>
+      <div class="pick">
+        B: Pragmatic Hybrid (with A as opt-in)
+      </div>
+    </div>
+  </div>
+</body>
+</html>

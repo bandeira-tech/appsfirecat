@@ -1,294 +1,457 @@
 # Apps Host Architecture
 
-A Deno server using B3nd/Firecat that works as a multi-tenant static app host, optimized for frontend-first applications.
+## Overview
 
-## Vision
+The Apps Host system follows B3nd's pattern of separating **protocol** from **implementation**.
 
-Enable a deployment workflow where:
-1. User develops application (manually or with agent)
-2. User builds their application frontend
-3. User writes build as version content to B3nd
-4. User writes target version pointer to B3nd
-5. User configures DNS to point domain to host
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         USER WORKFLOW                           │
+│  Developer → Build → Encrypt → Write to B3nd → Point to Host   │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      B3ND CONTENT LAYER                         │
+│  immutable://accounts/{appPubkey}/builds/{hash}/...             │
+│  mutable://accounts/{appPubkey}/target                          │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                       HOST PROTOCOL                             │
+│  Contract: How hosts read from B3nd and serve HTTP              │
+│  - Target resolution                                            │
+│  - Content fetching                                             │
+│  - Decryption (when keys available)                             │
+│  - HTTP response formatting                                     │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+            ┌───────────────────┼───────────────────┐
+            ▼                   ▼                   ▼
+┌───────────────────┐ ┌───────────────────┐ ┌───────────────────┐
+│  public-static    │ │  shell-server     │ │  container-host   │
+│  (First impl)     │ │  (Future)         │ │  (Future)         │
+└───────────────────┘ └───────────────────┘ └───────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    DOMAIN/PROXY LAYER                           │
+│  (Separate concern - Caddy, Nginx, Cloudflare, etc.)            │
+│  Maps domains → host instances                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-The host server reads from B3nd and serves content - anyone can run their own host server to serve their own content.
+## Layer Separation
 
-## Core Principles
+### Layer 1: B3nd Content (Already Exists)
 
-### B3nd-First Interaction
-
-The host server should have **minimal HTTP API**. Instead:
-- Users interact with B3nd directly for content management
-- CLI tools orchestrate B3nd actions, not HTTP calls to the host
-- Host server reads from B3nd and serves - that's its primary job
-- HTTP API only for things that **must** be host-specific (e.g., domain verification challenges)
-
-### External Caching
-
-The host server:
-- Controls caching via HTTP headers only
-- Does NOT implement caching layer itself
-- Expects external CDN/cache (Cloudflare, Varnish, Fastly, etc.)
-- Focuses on being a correct origin server
-
-### Decentralized by Design
-
-- No central network or token economics
-- Anyone can run a host server
-- Content lives on B3nd (Firecat or self-hosted)
-- Host servers are stateless readers of B3nd data
-
-## URI Schema
-
-### Build Content (Immutable)
+Where builds live. Users write here directly via CLI or SDK.
 
 ```
 immutable://accounts/{appPubkey}/builds/{buildHash}/
-├── manifest.json          # File listing with hashes
+├── manifest.json
 ├── index.html
 ├── assets/
-│   ├── main.{hash}.js
-│   ├── main.{hash}.css
-│   └── images/
-│       └── logo.png
+│   └── main.abc123.js
 └── ...
-```
 
-Each file stored individually for:
-- Partial caching (unchanged files stay cached)
-- Range requests support
-- Parallel fetching
-- Content-addressable per-file integrity
-
-### Build Manifest
-
-```json
-{
-  "version": "1.0.0",
-  "buildHash": "abc123...",
-  "createdAt": 1704067200000,
-  "files": {
-    "index.html": {
-      "size": 1234,
-      "hash": "sha256:...",
-      "contentType": "text/html",
-      "encoding": "gzip"
-    },
-    "assets/main.abc123.js": {
-      "size": 45678,
-      "hash": "sha256:...",
-      "contentType": "application/javascript",
-      "encoding": "gzip"
-    }
-  },
-  "entrypoint": "index.html",
-  "spa": true,
-  "headers": {
-    "assets/*": {
-      "Cache-Control": "public, max-age=31536000, immutable"
-    },
-    "index.html": {
-      "Cache-Control": "public, max-age=0, must-revalidate"
-    }
-  }
-}
-```
-
-### Version Target (Mutable Pointer)
-
-```
 mutable://accounts/{appPubkey}/target
+→ { buildHash: "...", version: "..." }
 ```
 
-```json
-{
-  "buildHash": "abc123...",
-  "version": "1.0.0",
-  "updatedAt": 1704067200000,
-  "updatedBy": "pubkey of deployer"
+### Layer 2: Host Protocol (This Project)
+
+The contract that all host implementations follow. Defines:
+- How to resolve which build to serve
+- How to read content from B3nd
+- How to handle encryption/decryption
+- How to format HTTP responses
+
+### Layer 3: Host Implementations
+
+Different servers for different needs. Each is small and focused.
+
+| Implementation | Purpose | Trust Model |
+|----------------|---------|-------------|
+| `public-static` | Serve encrypted content, decrypt with host key | Trust host |
+| `shell-server` | Serve shell + encrypted bytes | Trust client |
+| `container-host` | Run as container image | Self-hosted |
+| `edge-worker` | Cloudflare/Deno Deploy worker | Edge CDN |
+
+### Layer 4: Domain/Proxy Layer (Separate Concern)
+
+Domain mapping, TLS, routing. Handled by:
+- Reverse proxy (Caddy, Nginx, Traefik)
+- CDN (Cloudflare, Fastly)
+- DNS configuration
+
+This layer is **not part of the host implementations**. Hosts just serve content for a given appPubkey. The proxy layer maps domains to hosts.
+
+---
+
+## Host Protocol Specification
+
+### Inputs
+
+A host implementation receives:
+
+```typescript
+interface HostRequest {
+  appPubkey: string;      // Which app to serve
+  path: string;           // Requested path (e.g., "/index.html")
+  buildHash?: string;     // Optional: specific build (for previews)
 }
 ```
 
-### App Configuration
+### Resolution Flow
+
+```typescript
+interface HostProtocol {
+  // 1. Resolve which build to serve
+  resolveTarget(appPubkey: string, buildHash?: string): Promise<BuildTarget>;
+
+  // 2. Read manifest
+  getManifest(target: BuildTarget): Promise<Manifest>;
+
+  // 3. Resolve path (SPA handling, etc.)
+  resolvePath(path: string, manifest: Manifest): string;
+
+  // 4. Read content
+  readContent(target: BuildTarget, path: string): Promise<Uint8Array>;
+
+  // 5. Decrypt if needed
+  decrypt(content: Uint8Array, context: DecryptContext): Promise<Uint8Array>;
+
+  // 6. Format response
+  formatResponse(content: Uint8Array, path: string, manifest: Manifest): Response;
+}
+```
+
+### Build Target
+
+```typescript
+interface BuildTarget {
+  appPubkey: string;
+  buildHash: string;
+  baseUri: string;  // immutable://accounts/{appPubkey}/builds/{buildHash}
+}
+```
+
+### Manifest Schema
+
+```typescript
+interface Manifest {
+  version: string;
+  buildHash: string;
+  createdAt: number;
+
+  // File listing
+  files: Record<string, FileEntry>;
+
+  // Routing
+  spa?: boolean;
+  entrypoint?: string;  // default: "index.html"
+
+  // Encryption
+  encryption?: {
+    enabled: boolean;
+    hostKeyUri?: string;  // Where wrapped key is stored
+  };
+
+  // Cache headers
+  headers?: Record<string, HeaderConfig>;
+}
+
+interface FileEntry {
+  size: number;
+  contentType: string;
+  hash?: string;
+  encrypted?: boolean;
+}
+```
+
+---
+
+## First Implementation: public-static
+
+A minimal server that:
+1. Receives appPubkey + path
+2. Resolves target from B3nd
+3. Fetches content from B3nd
+4. Decrypts using host's private key
+5. Serves with appropriate headers
+
+### Characteristics
+
+- **Single responsibility:** Serve files for one or more appPubkeys
+- **Stateless:** All state lives in B3nd
+- **Has keypair:** Host has X25519 keypair for decryption
+- **No domain logic:** Doesn't know about domains, just appPubkeys
+- **No auth logic:** If it can decrypt, it serves (auth is proxy layer's job)
+
+### Configuration
+
+```typescript
+interface PublicStaticConfig {
+  // B3nd backend
+  backendUrl: string;  // e.g., "https://testnet-evergreen.fire.cat"
+
+  // Host identity
+  hostPrivateKey: string;  // X25519 private key (hex)
+  hostPublicKey: string;   // X25519 public key (hex)
+
+  // Server
+  port: number;
+
+  // Optional: allowed apps (empty = any)
+  allowedApps?: string[];
+}
+```
+
+### API
 
 ```
-mutable://accounts/{appPubkey}/config
+GET /{appPubkey}/{path}
+GET /{appPubkey}/                    → serves entrypoint
+GET /{appPubkey}/_target             → returns current target info
+GET /_health                         → health check
+GET /_pubkey                         → returns host's public key
 ```
 
-```json
-{
-  "domains": ["myapp.com", "www.myapp.com"],
-  "spa": true,
-  "defaultHeaders": {},
-  "encryption": {
-    "enabled": true,
-    "publicKey": "x25519 public key for host"
+### Request Flow
+
+```
+GET /052fee.../index.html
+         │
+         ▼
+┌─────────────────────────────────────┐
+│ 1. Parse: appPubkey = 052fee...    │
+│           path = index.html         │
+└─────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────┐
+│ 2. Fetch target from B3nd           │
+│    mutable://accounts/052fee.../    │
+│    target → { buildHash: "abc..." } │
+└─────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────┐
+│ 3. Fetch manifest                   │
+│    immutable://accounts/052fee.../  │
+│    builds/abc.../manifest.json      │
+└─────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────┐
+│ 4. Resolve path                     │
+│    SPA? 404 fallback to entrypoint  │
+└─────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────┐
+│ 5. Fetch content                    │
+│    immutable://accounts/052fee.../  │
+│    builds/abc.../index.html         │
+└─────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────┐
+│ 6. Decrypt (if encrypted)           │
+│    Read wrapped key from manifest   │
+│    Unwrap with host private key     │
+│    Decrypt content                  │
+└─────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────┐
+│ 7. Serve response                   │
+│    Content-Type from manifest       │
+│    Cache headers from manifest      │
+└─────────────────────────────────────┘
+```
+
+---
+
+## Domain Mapping (Separate Layer)
+
+The proxy layer maps domains to `{hostUrl}/{appPubkey}`.
+
+### Option A: Caddy/Nginx Config
+
+```caddy
+myapp.com {
+    reverse_proxy localhost:8080 {
+        header_up X-App-Pubkey "052fee..."
+    }
+    rewrite * /052fee...{uri}
+}
+```
+
+### Option B: Cloudflare Worker
+
+```javascript
+export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+    const appPubkey = DOMAIN_MAP[url.hostname];
+    const hostUrl = `https://host.example.com/${appPubkey}${url.pathname}`;
+    return fetch(hostUrl);
   }
 }
 ```
 
-## Request Flow
+### Option C: Dedicated Proxy Service (Future)
+
+A service that:
+- Reads domain mappings from B3nd
+- Routes to appropriate host
+- Handles TLS via Let's Encrypt
+
+This is a **separate project**, not part of the host implementations.
+
+---
+
+## Repository Structure
 
 ```
-Request: https://myapp.com/dashboard
-         ↓
-   ┌──────────────┐
-   │  CDN/Cache   │ ← Cache HIT? Serve directly
-   └──────┬───────┘
-          │ Cache MISS
-          ↓
-   ┌──────────────┐
-   │  Host Server │
-   └──────┬───────┘
-          │
-   1. Resolve domain → appPubkey
-          │ (via DNS TXT or local mapping)
-          ↓
-   2. Fetch mutable://accounts/{appPubkey}/target
-          │ → { buildHash: "abc123..." }
-          ↓
-   3. Fetch immutable://accounts/{appPubkey}/builds/abc123.../manifest.json
-          │ → file listing, SPA config
-          ↓
-   4. Resolve path: /dashboard
-          │ SPA mode? → /index.html
-          ↓
-   5. Fetch immutable://accounts/{appPubkey}/builds/abc123.../index.html
-          │ → content (possibly encrypted)
-          ↓
-   6. Decrypt if needed (using shared key)
-          ↓
-   7. Serve with appropriate headers
-          │ (Cache-Control, ETag, Content-Type)
-          ↓
-   Response to CDN (caches) → Client
+appsfirecat/
+├── packages/
+│   ├── host-protocol/          # Shared protocol types & utilities
+│   │   ├── src/
+│   │   │   ├── types.ts        # Manifest, BuildTarget, etc.
+│   │   │   ├── resolve.ts      # Target resolution logic
+│   │   │   ├── decrypt.ts      # Decryption utilities
+│   │   │   └── headers.ts      # Cache header logic
+│   │   └── mod.ts
+│   │
+│   ├── public-static/          # First host implementation
+│   │   ├── src/
+│   │   │   ├── server.ts       # Hono server
+│   │   │   ├── handler.ts      # Request handler
+│   │   │   └── config.ts       # Configuration
+│   │   ├── mod.ts
+│   │   └── Dockerfile
+│   │
+│   ├── shell-server/           # Future: shell-based host
+│   │
+│   └── cli/                    # btc CLI extensions
+│       └── commands/
+│           ├── encrypt.ts      # Encrypt build to host key
+│           └── publish.ts      # Write build to B3nd
+│
+├── docs/
+│   ├── ARCHITECTURE.md
+│   ├── OPEN_QUESTIONS.md
+│   └── explorations/
+│
+└── deno.json                   # Workspace config
 ```
+
+---
 
 ## Encryption Model
 
-For apps requiring access control, content is encrypted client-side before upload.
+### At Build Time (CLI)
 
-### Public Content (Default)
-- No encryption
-- Anyone with the URL can access
-- Standard CDN caching works
+```typescript
+// 1. Get host's public key
+const hostPubkey = await fetch("https://host.example.com/_pubkey").then(r => r.text());
 
-### Protected Content
-- Content encrypted with key derived from password
-- Host cannot decrypt without password
-- User accesses site → auth flow → gets decryption key
-- Two options for serving:
-  1. **Client-side decryption:** Host serves encrypted, JS decrypts
-  2. **Host-assisted decryption:** App shares key with host for specific sessions
+// 2. Generate content key for this build
+const contentKey = await crypto.getRandomValues(new Uint8Array(32));
 
-### Private Content
-- Content encrypted to app owner's key
-- Only owner can decrypt
-- Useful for staging/preview environments
-
-### Host Key Sharing (for Protected Content)
-
-When an app needs the host to serve decrypted content:
-
-```
-mutable://accounts/{appPubkey}/host-keys/{hostPubkey}
-```
-
-```json
-{
-  "encryptedContentKey": "...",  // Content key encrypted to host's pubkey
-  "grantedAt": 1704067200000,
-  "expiresAt": 1704153600000,    // Optional expiry
-  "paths": ["/*"]                // Which paths this key covers
+// 3. Encrypt each file with content key (symmetric, fast)
+for (const file of files) {
+  const encrypted = await encryptAesGcm(file.content, contentKey);
+  await b3nd.write(`immutable://.../${file.path}`, encrypted);
 }
+
+// 4. Wrap content key to host's public key (asymmetric)
+const wrappedKey = await encryptX25519(contentKey, hostPubkey);
+
+// 5. Store wrapped key in manifest
+manifest.encryption = {
+  enabled: true,
+  wrappedKey: wrappedKey,  // Or store at separate URI
+};
 ```
 
-This allows:
-- App owner controls which hosts can decrypt
-- Time-limited access grants
-- Path-specific access
-- Revocation by deleting the grant
+### At Serve Time (Host)
 
-## Domain Management
+```typescript
+// 1. Read manifest
+const manifest = await b3nd.read(`${baseUri}/manifest.json`);
 
-### Verification via DNS TXT
+// 2. Unwrap content key
+const wrappedKey = manifest.encryption.wrappedKey;
+const contentKey = await decryptX25519(wrappedKey, HOST_PRIVATE_KEY);
 
-```
-_b3nd.myapp.com TXT "app=052fee...abc123"
-```
+// 3. Read encrypted content
+const encrypted = await b3nd.read(`${baseUri}/${path}`);
 
-Host server:
-1. Receives request for `myapp.com`
-2. DNS lookup `_b3nd.myapp.com` TXT
-3. Extracts `appPubkey` from record
-4. Fetches content from B3nd using that pubkey
+// 4. Decrypt with content key
+const decrypted = await decryptAesGcm(encrypted, contentKey);
 
-### Local Domain Mapping (Development/Self-Hosted)
-
-For development or when running your own host:
-
-```
-mutable://accounts/{hostPubkey}/domain-mappings/{domain}
+// 5. Serve
+return new Response(decrypted, { headers });
 ```
 
-```json
-{
-  "appPubkey": "052fee...",
-  "addedAt": 1704067200000,
-  "verified": true
-}
+---
+
+## Unencrypted Content
+
+Not all content needs encryption. For public sites:
+
+```typescript
+manifest.encryption = {
+  enabled: false
+};
 ```
 
-## CLI Workflow (btc evolution)
+Host serves directly without decryption step.
 
-```bash
-# Initialize app identity
-btc init
-# → Creates .btc/keys.json with appPubkey/privateKey
-# → Writes initial config to mutable://accounts/{appPubkey}/config
+---
 
-# Build and publish
-btc build
-# → Runs npm build (or configured build command)
-# → Gzips files individually
-# → Generates manifest.json
-# → Writes to immutable://accounts/{appPubkey}/builds/{hash}/
+## Multi-Host Support
 
-# Deploy (update target pointer)
-btc deploy
-# → Updates mutable://accounts/{appPubkey}/target → latest build
+Apps can encrypt to multiple hosts:
 
-# Or combined
-btc ship
-# → build + deploy
-
-# Domain management
-btc domains add myapp.com
-# → Updates config.domains
-# → Shows DNS TXT record to add
-
-btc domains verify myapp.com
-# → Checks DNS TXT record matches appPubkey
-
-# Rollback
-btc rollback v1.0.0
-# → Updates target to point to previous buildHash
-
-# List builds
-btc builds
-# → Lists immutable://accounts/{appPubkey}/builds/
+```typescript
+manifest.encryption = {
+  enabled: true,
+  keys: {
+    "host-a-pubkey": "wrapped-key-for-a",
+    "host-b-pubkey": "wrapped-key-for-b"
+  }
+};
 ```
 
-## Host Server Implementation
+Each host unwraps with its own private key.
 
-Minimal Deno server responsibilities:
-1. DNS resolution (domain → appPubkey)
-2. B3nd reads (target, manifest, content)
-3. Decryption (when key is shared)
-4. HTTP response formatting (headers, compression)
+---
 
-**Not responsible for:**
-- Caching (external CDN)
-- SSL termination (reverse proxy/CDN)
-- Rate limiting (external)
-- Analytics (external or B3nd-based)
+## Future Implementations
+
+### shell-server
+
+For E2E encrypted apps where host shouldn't decrypt:
+- Serves shell + encrypted bytes
+- No host private key needed
+- Client decrypts in browser
+
+### container-host
+
+Packaged as Docker image:
+- Self-contained
+- Easy deployment
+- Includes host keypair management
+
+### edge-worker
+
+Runs on edge platforms:
+- Cloudflare Workers
+- Deno Deploy
+- Minimal cold start

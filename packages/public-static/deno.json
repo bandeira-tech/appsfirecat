@@ -1,0 +1,14 @@
+{
+  "name": "@appsfirecat/public-static",
+  "version": "0.1.0",
+  "exports": {
+    ".": "./mod.ts"
+  },
+  "imports": {
+    "@appsfirecat/host-protocol": "../host-protocol/mod.ts"
+  },
+  "tasks": {
+    "start": "deno run -A mod.ts",
+    "dev": "deno run -A --watch mod.ts"
+  }
+}

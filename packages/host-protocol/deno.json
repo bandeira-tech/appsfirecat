@@ -1,0 +1,11 @@
+{
+  "name": "@appsfirecat/host-protocol",
+  "version": "0.1.0",
+  "exports": {
+    ".": "./mod.ts",
+    "./types": "./src/types.ts",
+    "./resolve": "./src/resolve.ts",
+    "./decrypt": "./src/decrypt.ts",
+    "./headers": "./src/headers.ts"
+  }
+}
