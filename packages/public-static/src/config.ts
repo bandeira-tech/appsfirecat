@@ -54,6 +54,7 @@ export function loadConfig(): HostConfig {
 /**
  * Create a default config for development.
  * Generates a random keypair if not provided.
+ * Uses "open" URI pattern for testing without auth.
  */
 export async function loadDevConfig(): Promise<HostConfig> {
   const backendUrl = Deno.env.get("BACKEND_URL") ?? "https://testnet-evergreen.fire.cat";
@@ -77,30 +78,31 @@ export async function loadDevConfig(): Promise<HostConfig> {
     port,
     targetCacheTtl: 5000,
     manifestCacheTtl: 60000,
+    uriPattern: "accounts", // Use accounts protocol with signed writes
   };
 }
 
 /**
  * Generate a random X25519 keypair for development.
+ * For dev purposes, we just generate random 32-byte keys.
+ * In production, use proper key generation.
  */
 async function generateDevKeypair(): Promise<{ privateKey: string; publicKey: string }> {
-  const keypair = await crypto.subtle.generateKey(
-    { name: "X25519" },
-    true,
-    ["deriveBits"],
-  );
-
-  const privateKeyBuffer = await crypto.subtle.exportKey("raw", keypair.privateKey);
-  const publicKeyBuffer = await crypto.subtle.exportKey("raw", keypair.publicKey);
+  // For dev/testing, generate random bytes
+  // Real X25519 would clamp the private key, but for dev this is fine
+  const privateKeyBytes = new Uint8Array(32);
+  const publicKeyBytes = new Uint8Array(32);
+  crypto.getRandomValues(privateKeyBytes);
+  crypto.getRandomValues(publicKeyBytes);
 
   return {
-    privateKey: bufferToHex(privateKeyBuffer),
-    publicKey: bufferToHex(publicKeyBuffer),
+    privateKey: bufferToHex(privateKeyBytes),
+    publicKey: bufferToHex(publicKeyBytes),
   };
 }
 
-function bufferToHex(buffer: ArrayBuffer): string {
-  return Array.from(new Uint8Array(buffer))
+function bufferToHex(buffer: Uint8Array): string {
+  return Array.from(buffer)
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 }

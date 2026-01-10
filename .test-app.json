@@ -1,0 +1,8 @@
+{
+  "appPubkey": "1f2846a59f7aaa9dd037cd6af54fea50cb6557c8a0c7e64e362197c3b64944a8",
+  "appPrivateKey": "302e020100300506032b6570042204206e2186115b9347824ef1d50dfe5536c236b630b4f2011f7779ad51f08b9d16b8",
+  "buildHash": "d579cc964b2402bfbcf3415c42462c7e",
+  "version": "1.0.0",
+  "baseUri": "immutable://accounts/1f2846a59f7aaa9dd037cd6af54fea50cb6557c8a0c7e64e362197c3b64944a8/builds/d579cc964b2402bfbcf3415c42462c7e",
+  "targetUri": "mutable://accounts/1f2846a59f7aaa9dd037cd6af54fea50cb6557c8a0c7e64e362197c3b64944a8/target"
+}

@@ -1,39 +1,42 @@
 /**
  * Request Handler for public-static host.
  *
- * Handles the full request flow:
- * 1. Parse appPubkey and path from URL
- * 2. Resolve target build
- * 3. Fetch manifest
- * 4. Resolve file path
- * 5. Fetch and decrypt content
- * 6. Return response with headers
+ * Simple B3nd HTTP gateway - the URL path directly maps to B3nd URI.
+ *
+ * URL format: /{protocol}/{domain}/{path...}
+ * Examples:
+ *   /immutable/accounts/abc123/builds/def456/index.html
+ *   /mutable/accounts/abc123/target
+ *   /immutable/open/some/path
  */
 
 import {
   buildErrorHeaders,
   buildResponseHeaders,
   decrypt,
-  fileUri,
-  getManifest,
-  hexToBytes,
   isEncrypted,
-  resolvePath,
-  ResolveError,
-  resolveTarget,
   type B3ndReader,
-  type BuildTarget,
   type HostConfig,
   type HostInfoResponse,
   type Manifest,
 } from "@appsfirecat/host-protocol";
 
 /**
- * Simple in-memory cache for targets and manifests.
+ * Authenticated message wrapper from B3nd.
  */
-interface Cache {
-  targets: Map<string, { target: BuildTarget; expiresAt: number }>;
-  manifests: Map<string, { manifest: Manifest; expiresAt: number }>;
+interface AuthenticatedMessage<T> {
+  auth?: Array<{ pubkey: string; signature: string }>;
+  payload: T;
+}
+
+/**
+ * Unwrap authenticated message data.
+ */
+function unwrapData<T>(data: T | AuthenticatedMessage<T>): T {
+  if (data && typeof data === "object" && "payload" in data) {
+    return (data as AuthenticatedMessage<T>).payload;
+  }
+  return data as T;
 }
 
 /**
@@ -43,62 +46,40 @@ export function createHandler(
   client: B3ndReader,
   config: HostConfig,
 ) {
-  const cache: Cache = {
-    targets: new Map(),
-    manifests: new Map(),
-  };
-
   return async (req: Request): Promise<Response> => {
     const url = new URL(req.url);
     const path = url.pathname;
 
-    // Health check
+    // System endpoints
     if (path === "/_health") {
       return handleHealth(client, config);
     }
-
-    // Host public key
     if (path === "/_pubkey") {
       return handlePubkey(config);
     }
-
-    // Host info
     if (path === "/_info") {
       return handleInfo(config);
     }
 
-    // Parse: /{appPubkey}/{path...}
-    const match = path.match(/^\/([a-f0-9]{64})(\/.*)?$/i);
+    // Parse B3nd URI from path: /{protocol}/{domain}/{path...}
+    // e.g., /immutable/accounts/abc123/builds/def456/index.html
+    const match = path.match(/^\/([^/]+)\/(.+)$/);
     if (!match) {
-      return new Response("Invalid path. Expected: /{appPubkey}/{path}", {
-        status: 400,
-        headers: buildErrorHeaders(),
-      });
+      return new Response(
+        "Invalid path. Expected: /{protocol}/{domain}/{path...}\n" +
+        "Example: /immutable/accounts/{pubkey}/builds/{hash}/index.html",
+        { status: 400, headers: buildErrorHeaders() },
+      );
     }
 
-    const appPubkey = match[1];
-    const filePath = match[2] ?? "/";
+    const protocol = match[1]; // "immutable" or "mutable"
+    const rest = match[2]; // "accounts/abc123/builds/def456/index.html"
 
-    // Check allowed apps
-    if (config.allowedApps && !config.allowedApps.includes(appPubkey)) {
-      return new Response("App not allowed on this host", {
-        status: 403,
-        headers: buildErrorHeaders(),
-      });
-    }
-
-    // Handle preview mode via query param
-    const buildHash = url.searchParams.get("build") ?? undefined;
+    // Construct B3nd URI
+    const b3ndUri = `${protocol}://${rest}`;
 
     try {
-      return await handleContent(
-        client,
-        config,
-        cache,
-        appPubkey,
-        filePath,
-        buildHash,
-      );
+      return await handleContent(client, config, b3ndUri);
     } catch (error) {
       return handleError(error);
     }
@@ -106,127 +87,94 @@ export function createHandler(
 }
 
 /**
- * Handle content request.
+ * Handle content request - just read from B3nd and serve.
  */
 async function handleContent(
   client: B3ndReader,
   config: HostConfig,
-  cache: Cache,
-  appPubkey: string,
-  path: string,
-  buildHash?: string,
+  uri: string,
 ): Promise<Response> {
-  // 1. Resolve target (with caching)
-  const target = await getCachedTarget(client, cache, config, appPubkey, buildHash);
+  // Read from B3nd
+  const result = await client.read<unknown>(uri);
 
-  // 2. Get manifest (with caching)
-  const manifest = await getCachedManifest(client, cache, config, target);
-
-  // 3. Resolve path
-  const resolved = resolvePath(path, manifest);
-
-  // 4. Fetch content from B3nd
-  const contentUri = fileUri(target, resolved.filePath);
-  const contentResult = await client.read<Uint8Array>(contentUri);
-
-  if (!contentResult.success || !contentResult.record?.data) {
-    throw new ResolveError(`Failed to fetch content: ${contentUri}`, "NOT_FOUND");
-  }
-
-  let content = contentResult.record.data;
-
-  // Handle if data comes as base64 string (common in B3nd for binary)
-  if (typeof content === "string") {
-    content = Uint8Array.from(atob(content), (c) => c.charCodeAt(0));
-  }
-
-  // 5. Decrypt if needed
-  if (isEncrypted(manifest)) {
-    content = await decrypt(content, {
-      hostPrivateKey: config.hostPrivateKey,
-      hostPubkey: config.hostPubkey,
-      manifest,
+  if (!result.success) {
+    return new Response(`Not found: ${uri}\nError: ${result.error}`, {
+      status: 404,
+      headers: buildErrorHeaders(),
     });
   }
 
-  // 6. Build response headers
-  const headers = buildResponseHeaders(
-    resolved.filePath,
-    resolved.file,
-    manifest,
-    { gzipped: resolved.file.gzipped },
-  );
-
-  // Add build info header (useful for debugging)
-  headers.set("X-Build-Hash", target.buildHash.substring(0, 16));
-  if (target.version) {
-    headers.set("X-Build-Version", target.version);
-  }
-  if (resolved.fallback) {
-    headers.set("X-Fallback", "true");
+  if (!result.record?.data) {
+    return new Response(`No data at: ${uri}`, {
+      status: 404,
+      headers: buildErrorHeaders(),
+    });
   }
 
-  return new Response(content, { status: 200, headers });
+  // Unwrap authenticated message
+  let data = unwrapData(result.record.data);
+
+  // Determine content type and format response
+  const headers = new Headers();
+
+  if (typeof data === "string") {
+    // String content - serve as text
+    headers.set("Content-Type", getContentTypeFromUri(uri));
+    headers.set("Cache-Control", getCacheControl(uri));
+    return new Response(data, { status: 200, headers });
+  }
+
+  if (data instanceof Uint8Array || ArrayBuffer.isView(data)) {
+    // Binary content
+    headers.set("Content-Type", getContentTypeFromUri(uri));
+    headers.set("Cache-Control", getCacheControl(uri));
+    return new Response(data as Uint8Array, { status: 200, headers });
+  }
+
+  // Object/JSON content - serve as JSON
+  headers.set("Content-Type", "application/json; charset=utf-8");
+  headers.set("Cache-Control", getCacheControl(uri));
+  return new Response(JSON.stringify(data, null, 2), { status: 200, headers });
 }
 
 /**
- * Get target with caching.
+ * Guess content type from URI path.
  */
-async function getCachedTarget(
-  client: B3ndReader,
-  cache: Cache,
-  config: HostConfig,
-  appPubkey: string,
-  buildHash?: string,
-): Promise<BuildTarget> {
-  // Preview mode bypasses cache
-  if (buildHash) {
-    return resolveTarget(client, { appPubkey, path: "/", buildHash });
-  }
+function getContentTypeFromUri(uri: string): string {
+  const path = uri.split("/").pop() ?? "";
 
-  const cacheKey = appPubkey;
-  const cached = cache.targets.get(cacheKey);
-  const now = Date.now();
+  if (path.endsWith(".html")) return "text/html; charset=utf-8";
+  if (path.endsWith(".css")) return "text/css; charset=utf-8";
+  if (path.endsWith(".js")) return "application/javascript; charset=utf-8";
+  if (path.endsWith(".json")) return "application/json; charset=utf-8";
+  if (path.endsWith(".png")) return "image/png";
+  if (path.endsWith(".jpg") || path.endsWith(".jpeg")) return "image/jpeg";
+  if (path.endsWith(".gif")) return "image/gif";
+  if (path.endsWith(".svg")) return "image/svg+xml";
+  if (path.endsWith(".woff2")) return "font/woff2";
+  if (path.endsWith(".woff")) return "font/woff";
 
-  if (cached && cached.expiresAt > now) {
-    return cached.target;
-  }
-
-  const target = await resolveTarget(client, { appPubkey, path: "/" });
-
-  cache.targets.set(cacheKey, {
-    target,
-    expiresAt: now + (config.targetCacheTtl ?? 5000),
-  });
-
-  return target;
+  return "application/octet-stream";
 }
 
 /**
- * Get manifest with caching.
+ * Determine cache control based on URI.
  */
-async function getCachedManifest(
-  client: B3ndReader,
-  cache: Cache,
-  config: HostConfig,
-  target: BuildTarget,
-): Promise<Manifest> {
-  const cacheKey = `${target.appPubkey}:${target.buildHash}`;
-  const cached = cache.manifests.get(cacheKey);
-  const now = Date.now();
-
-  if (cached && cached.expiresAt > now) {
-    return cached.manifest;
+function getCacheControl(uri: string): string {
+  // Mutable content - short cache
+  if (uri.startsWith("mutable://")) {
+    return "public, max-age=5";
   }
 
-  const manifest = await getManifest(client, target);
+  // Immutable content - can cache longer
+  // Check for hashed assets
+  const path = uri.split("/").pop() ?? "";
+  if (/\.[a-f0-9]{6,}\.(js|css|woff2?)$/i.test(path)) {
+    return "public, max-age=31536000, immutable";
+  }
 
-  cache.manifests.set(cacheKey, {
-    manifest,
-    expiresAt: now + (config.manifestCacheTtl ?? 60000),
-  });
-
-  return manifest;
+  // Default for immutable
+  return "public, max-age=3600";
 }
 
 /**
@@ -239,9 +187,9 @@ async function handleHealth(
   let backendStatus: "ok" | "error" = "error";
 
   try {
-    // Try to read schema or any lightweight operation
-    const result = await client.read("mutable://open/health-check");
-    backendStatus = result.success || result.error === "Not found" ? "ok" : "error";
+    // Simple connectivity check
+    const result = await client.read("mutable://open/health");
+    backendStatus = "ok";
   } catch {
     backendStatus = "error";
   }
@@ -292,16 +240,9 @@ function handleInfo(config: HostConfig): Response {
  * Handle errors.
  */
 function handleError(error: unknown): Response {
-  if (error instanceof ResolveError) {
-    const status = error.code === "NOT_FOUND" ? 404 : 400;
-    return new Response(error.message, {
-      status,
-      headers: buildErrorHeaders(),
-    });
-  }
-
-  console.error("Unhandled error:", error);
-  return new Response("Internal server error", {
+  console.error("Error:", error);
+  const message = error instanceof Error ? error.message : "Unknown error";
+  return new Response(`Error: ${message}`, {
     status: 500,
     headers: buildErrorHeaders(),
   });

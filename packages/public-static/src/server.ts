@@ -4,9 +4,9 @@
  * Uses Hono for routing and the native Deno HTTP server.
  */
 
-import { Hono } from "@hono/hono";
-import { cors } from "@hono/hono/cors";
-import { HttpClient } from "@bandeira-tech/b3nd-sdk";
+import { Hono } from "jsr:@hono/hono@^4";
+import { cors } from "jsr:@hono/hono@^4/cors";
+import { HttpClient } from "jsr:@bandeira-tech/b3nd-sdk";
 import type { HostConfig } from "@appsfirecat/host-protocol";
 import { createHandler } from "./handler.ts";
 
@@ -54,12 +54,15 @@ export function startServer(config: HostConfig) {
 ║  Pubkey:   ${config.hostPubkey.substring(0, 16)}...${" ".repeat(24)}║
 ╚═══════════════════════════════════════════════════════════╝
 
-Endpoints:
-  GET /{appPubkey}/{path}    Serve content
-  GET /{appPubkey}/_target   Get current target info
-  GET /_health               Health check
-  GET /_pubkey               Get host public key
-  GET /_info                 Get host info
+URL format: /{protocol}/{domain}/{path...}
+Examples:
+  /immutable/accounts/{pubkey}/builds/{hash}/index.html
+  /mutable/accounts/{pubkey}/target
+
+System endpoints:
+  GET /_health    Health check
+  GET /_pubkey    Get host public key
+  GET /_info      Get host info
 
 Ready to serve!
 `);

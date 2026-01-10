@@ -1,0 +1,18 @@
+{
+  "version": "5",
+  "specifiers": {
+    "jsr:@bandeira-tech/b3nd-sdk@*": "0.4.0"
+  },
+  "jsr": {
+    "@bandeira-tech/b3nd-sdk@0.4.0": {
+      "integrity": "02b865eaa814c12bcee0cc8289dfe0014abe9c1edb02e853bfedce899f53f312"
+    }
+  },
+  "workspace": {
+    "dependencies": [
+      "jsr:@bandeira-tech/b3nd-sdk@*",
+      "jsr:@hono/hono@4",
+      "jsr:@std/assert@^1.0.15"
+    ]
+  }
+}

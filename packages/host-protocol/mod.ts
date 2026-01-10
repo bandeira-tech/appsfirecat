@@ -32,6 +32,7 @@ export {
   resolveTarget,
   targetUri,
   type B3ndReader,
+  type UriPattern,
 } from "./src/resolve.ts";
 
 // Decryption

@@ -212,6 +212,9 @@ export interface HostConfig {
 
   /** Optional: cache TTL for manifests (ms) */
   manifestCacheTtl?: number;
+
+  /** URI pattern: "accounts" (requires auth) or "open" (no auth, for testing) */
+  uriPattern?: "accounts" | "open";
 }
 
 /**

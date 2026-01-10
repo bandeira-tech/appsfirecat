@@ -20,17 +20,53 @@ export interface B3ndReader {
 }
 
 /**
+ * URI pattern configuration.
+ * Defaults to 'accounts' protocol (requires auth).
+ * Use 'open' for testing without auth.
+ */
+export type UriPattern = "accounts" | "open";
+
+/**
  * Build the base URI for a build.
  */
-export function buildBaseUri(appPubkey: string, buildHash: string): string {
+export function buildBaseUri(
+  appPubkey: string,
+  buildHash: string,
+  pattern: UriPattern = "accounts",
+): string {
+  if (pattern === "open") {
+    return `immutable://open/apps/${appPubkey}/builds/${buildHash}`;
+  }
   return `immutable://accounts/${appPubkey}/builds/${buildHash}`;
 }
 
 /**
  * Build the target URI for an app.
  */
-export function targetUri(appPubkey: string): string {
+export function targetUri(appPubkey: string, pattern: UriPattern = "accounts"): string {
+  if (pattern === "open") {
+    return `mutable://open/apps/${appPubkey}/target`;
+  }
   return `mutable://accounts/${appPubkey}/target`;
+}
+
+/**
+ * Authenticated message wrapper from B3nd.
+ */
+interface AuthenticatedMessage<T> {
+  auth?: Array<{ pubkey: string; signature: string }>;
+  payload: T;
+}
+
+/**
+ * Unwrap authenticated message data.
+ * Data from accounts protocol comes wrapped with auth + payload.
+ */
+function unwrapData<T>(data: T | AuthenticatedMessage<T>): T {
+  if (data && typeof data === "object" && "payload" in data) {
+    return (data as AuthenticatedMessage<T>).payload;
+  }
+  return data as T;
 }
 
 /**
@@ -42,6 +78,7 @@ export function targetUri(appPubkey: string): string {
 export async function resolveTarget(
   client: B3ndReader,
   request: HostRequest,
+  pattern: UriPattern = "accounts",
 ): Promise<BuildTarget> {
   const { appPubkey, buildHash } = request;
 
@@ -50,24 +87,25 @@ export async function resolveTarget(
     return {
       appPubkey,
       buildHash,
-      baseUri: buildBaseUri(appPubkey, buildHash),
+      baseUri: buildBaseUri(appPubkey, buildHash, pattern),
     };
   }
 
   // Fetch current target
-  const uri = targetUri(appPubkey);
-  const result = await client.read<TargetPointer>(uri);
+  const uri = targetUri(appPubkey, pattern);
+  const result = await client.read<TargetPointer | AuthenticatedMessage<TargetPointer>>(uri);
 
   if (!result.success || !result.record?.data) {
     throw new ResolveError(`No target found for app ${appPubkey}`, "NO_TARGET");
   }
 
-  const target = result.record.data;
+  // Unwrap authenticated message
+  const target = unwrapData(result.record.data);
 
   return {
     appPubkey,
     buildHash: target.buildHash,
-    baseUri: buildBaseUri(appPubkey, target.buildHash),
+    baseUri: buildBaseUri(appPubkey, target.buildHash, pattern),
     version: target.version,
   };
 }
@@ -80,7 +118,7 @@ export async function getManifest(
   target: BuildTarget,
 ): Promise<Manifest> {
   const uri = `${target.baseUri}/manifest.json`;
-  const result = await client.read<Manifest>(uri);
+  const result = await client.read<Manifest | AuthenticatedMessage<Manifest>>(uri);
 
   if (!result.success || !result.record?.data) {
     throw new ResolveError(
@@ -89,8 +127,14 @@ export async function getManifest(
     );
   }
 
-  return result.record.data;
+  // Unwrap authenticated message
+  return unwrapData(result.record.data);
 }
+
+/**
+ * Export unwrapData for use in handlers that read content.
+ */
+export { unwrapData };
 
 /**
  * Resolve a request path to an actual file in the build.
