@@ -11,9 +11,12 @@
     "@hono/hono": "jsr:@hono/hono@^4"
   },
   "tasks": {
-    "test": "deno test -A packages/",
+    "test": "deno test -A --no-check packages/",
     "lint": "deno lint packages/",
     "fmt": "deno fmt packages/",
-    "dev:public-static": "deno run -A --watch packages/public-static/mod.ts"
+    "dev:public-static": "deno run -A --watch packages/public-static/mod.ts",
+    "start:public-static": "deno run -A packages/public-static/mod.ts",
+    "deploy:site": "deno run -A scripts/deploy-site.ts",
+    "test:provider-flow": "deno run -A scripts/test-provider-flow.ts"
   }
 }

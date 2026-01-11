@@ -7,7 +7,7 @@
 import { Hono } from "jsr:@hono/hono@^4";
 import { cors } from "jsr:@hono/hono@^4/cors";
 import { HttpClient } from "jsr:@bandeira-tech/b3nd-sdk";
-import type { HostConfig } from "@appsfirecat/host-protocol";
+import type { HostConfig } from "../../host-protocol/mod.ts";
 import { createHandler } from "./handler.ts";
 
 /**
@@ -45,24 +45,30 @@ export function createServer(config: HostConfig) {
 export function startServer(config: HostConfig) {
   const app = createServer(config);
 
+  const targetDisplay = config.target
+    ? config.target.length > 50
+      ? config.target.substring(0, 47) + "..."
+      : config.target
+    : "(not configured)";
+
   console.log(`
 ╔═══════════════════════════════════════════════════════════╗
 ║                   public-static host                       ║
 ╠═══════════════════════════════════════════════════════════╣
 ║  Port:     ${config.port.toString().padEnd(45)}║
 ║  Backend:  ${config.backendUrl.substring(0, 45).padEnd(45)}║
+║  Target:   ${targetDisplay.padEnd(45)}║
 ║  Pubkey:   ${config.hostPubkey.substring(0, 16)}...${" ".repeat(24)}║
 ╚═══════════════════════════════════════════════════════════╝
 
-URL format: /{protocol}/{domain}/{path...}
-Examples:
-  /immutable/accounts/{pubkey}/builds/{hash}/index.html
-  /mutable/accounts/{pubkey}/target
+The host serves content from: target + request_path
+Example: GET /index.html -> reads {target}/index.html
 
 System endpoints:
   GET /_health    Health check
   GET /_pubkey    Get host public key
   GET /_info      Get host info
+  GET /_target    Show current target
 
 Ready to serve!
 `);

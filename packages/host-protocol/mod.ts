@@ -1,51 +1,18 @@
 /**
  * Host Protocol
  *
- * Shared types and utilities for Apps Host implementations.
- * All host implementations should import from this package.
+ * Minimal types for host implementations.
+ * A host is simply a "tap" that serves content from a B3nd path over HTTP.
  */
 
 // Types
 export type {
-  BuildTarget,
-  DecryptContext,
-  EncryptionConfig,
-  FileEntry,
-  HeadersConfig,
+  B3ndReader,
   HealthResponse,
   HostConfig,
   HostInfoResponse,
-  HostRequest,
-  Manifest,
-  ResolvedPath,
-  RoutingConfig,
-  TargetPointer,
+  ReadResult,
 } from "./src/types.ts";
-
-// Resolution
-export {
-  buildBaseUri,
-  fileUri,
-  getManifest,
-  resolvePath,
-  ResolveError,
-  resolveTarget,
-  targetUri,
-  type B3ndReader,
-  type UriPattern,
-} from "./src/resolve.ts";
-
-// Decryption
-export {
-  bytesToHex,
-  decrypt,
-  decryptContent,
-  DecryptError,
-  getWrappedKey,
-  hexToBytes,
-  isEncrypted,
-  unwrapContentKey,
-} from "./src/decrypt.ts";
 
 // Headers
 export {

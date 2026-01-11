@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Apps Firecat - Decentralized Static Hosting</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <div class="container">
+      <h1>Apps Firecat</h1>
+      <p class="tagline">Decentralized static hosting powered by B3nd</p>
+    </div>
+  </header>
+
+  <main class="container">
+    <section id="overview">
+      <h2>What is Apps Firecat?</h2>
+      <p>
+        Apps Firecat is a <strong>decentralized static hosting system</strong> that uses
+        <a href="https://b3nd.io">B3nd</a> as its content layer. Instead of storing your
+        built frontend in S3, R2, or a traditional CDN, you store it in B3nd's distributed
+        network and serve it through lightweight host servers.
+      </p>
+      <div class="highlight-box">
+        <h3>Key Benefits</h3>
+        <ul>
+          <li><strong>Decentralized storage</strong> - Content lives on B3nd, not vendor-locked</li>
+          <li><strong>Immutable builds</strong> - Each deployment is content-addressed</li>
+          <li><strong>Instant rollbacks</strong> - Just update a pointer</li>
+          <li><strong>Run your own host</strong> - Anyone can serve content</li>
+          <li><strong>Optional encryption</strong> - Encrypt builds to specific hosts</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="architecture">
+      <h2>How It Works</h2>
+      <div class="architecture-diagram">
+        <pre>
+Developer                    B3nd Network                 Host Server
+    |                            |                            |
+    |  1. Build frontend         |                            |
+    |  2. Sign & upload -------->|                            |
+    |     to accounts protocol   |                            |
+    |                            |                            |
+    |  3. Update target -------->|                            |
+    |     pointer (mutable)      |                            |
+    |                            |                            |
+    |                            |<---------- 4. Read target  |
+    |                            |<---------- 5. Read content |
+    |                            |                            |
+User -------------------------------------------------> 6. HTTP request
+    |                            |                            |
+    <-------------------------------------------------- 7. Serve content
+        </pre>
+      </div>
+
+      <h3>The Layers</h3>
+      <div class="layers">
+        <div class="layer">
+          <h4>1. B3nd Content Layer</h4>
+          <p>Your builds are stored as signed, immutable content:</p>
+          <code>immutable://accounts/{appPubkey}/builds/{buildHash}/</code>
+          <p>A mutable pointer tracks the current version:</p>
+          <code>mutable://accounts/{appPubkey}/target</code>
+        </div>
+
+        <div class="layer">
+          <h4>2. Host Server</h4>
+          <p>A simple HTTP gateway that:</p>
+          <ul>
+            <li>Maps URL paths to B3nd URIs</li>
+            <li>Reads content from B3nd</li>
+            <li>Unwraps authenticated messages</li>
+            <li>Serves with appropriate headers</li>
+          </ul>
+        </div>
+
+        <div class="layer">
+          <h4>3. Domain/Proxy Layer (Optional)</h4>
+          <p>Maps custom domains to specific app pubkeys using Caddy, Nginx, or Cloudflare.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="url-format">
+      <h2>URL Format</h2>
+      <p>The host server uses a direct mapping from URL paths to B3nd URIs:</p>
+      <div class="code-block">
+        <code>/{protocol}/{domain}/{path...}</code>
+      </div>
+      <h3>Examples</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>URL Path</th>
+            <th>B3nd URI</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>/immutable/accounts/abc.../builds/def.../index.html</code></td>
+            <td><code>immutable://accounts/abc.../builds/def.../index.html</code></td>
+          </tr>
+          <tr>
+            <td><code>/mutable/accounts/abc.../target</code></td>
+            <td><code>mutable://accounts/abc.../target</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="workflow">
+      <h2>Deployment Workflow</h2>
+      <div class="steps">
+        <div class="step">
+          <div class="step-number">1</div>
+          <div class="step-content">
+            <h4>Generate App Identity</h4>
+            <p>Create an Ed25519 keypair for your app. The public key becomes your app's permanent identity.</p>
+            <code>appPubkey = ed25519.generateKeypair().publicKey</code>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-number">2</div>
+          <div class="step-content">
+            <h4>Build Your Frontend</h4>
+            <p>Use your normal build process (Vite, Next.js, etc.) to generate static files.</p>
+            <code>npm run build</code>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-number">3</div>
+          <div class="step-content">
+            <h4>Upload to B3nd</h4>
+            <p>Sign and write each file to the accounts protocol. Generate a unique build hash.</p>
+            <code>immutable://accounts/{appPubkey}/builds/{buildHash}/{file}</code>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-number">4</div>
+          <div class="step-content">
+            <h4>Create Manifest</h4>
+            <p>Write a manifest.json listing all files with their content types.</p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-number">5</div>
+          <div class="step-content">
+            <h4>Update Target</h4>
+            <p>Point the mutable target to your new build hash.</p>
+            <code>mutable://accounts/{appPubkey}/target -> { buildHash: "..." }</code>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-number">6</div>
+          <div class="step-content">
+            <h4>Access via Host</h4>
+            <p>Your app is now live at:</p>
+            <code>http://host:8080/immutable/accounts/{appPubkey}/builds/{buildHash}/</code>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="data-format">
+      <h2>Data Formats</h2>
+
+      <h3>Target Pointer</h3>
+      <p>Stored at <code>mutable://accounts/{appPubkey}/target</code></p>
+      <pre class="json">{
+  "buildHash": "d579cc964b2402bfbcf3415c42462c7e",
+  "version": "1.0.0",
+  "updatedAt": 1768052530917
+}</pre>
+
+      <h3>Manifest</h3>
+      <p>Stored at <code>immutable://accounts/{appPubkey}/builds/{hash}/manifest.json</code></p>
+      <pre class="json">{
+  "manifestVersion": "1",
+  "buildHash": "d579cc964b2402bfbcf3415c42462c7e",
+  "version": "1.0.0",
+  "createdAt": 1768052530000,
+  "files": {
+    "index.html": {
+      "size": 831,
+      "contentType": "text/html; charset=utf-8",
+      "encrypted": false
+    },
+    "styles.css": {
+      "size": 961,
+      "contentType": "text/css; charset=utf-8",
+      "encrypted": false
+    }
+  },
+  "routing": {
+    "spa": true,
+    "entrypoint": "index.html"
+  },
+  "encryption": {
+    "enabled": false
+  }
+}</pre>
+    </section>
+
+    <section id="running">
+      <h2>Running the Host Server</h2>
+
+      <h3>Development Mode</h3>
+      <pre class="bash">deno run -A packages/public-static/mod.ts --dev</pre>
+      <p>This generates a random keypair and connects to the Firecat testnet.</p>
+
+      <h3>Production Mode</h3>
+      <pre class="bash">BACKEND_URL=https://testnet-evergreen.fire.cat \
+HOST_PRIVATE_KEY=your-x25519-private-key-hex \
+HOST_PUBKEY=your-x25519-public-key-hex \
+PORT=8080 \
+deno run -A packages/public-static/mod.ts</pre>
+
+      <h3>System Endpoints</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Endpoint</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>/_health</code></td>
+            <td>Health check with backend status</td>
+          </tr>
+          <tr>
+            <td><code>/_pubkey</code></td>
+            <td>Host's public key (for encryption)</td>
+          </tr>
+          <tr>
+            <td><code>/_info</code></td>
+            <td>Host info and capabilities</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="future">
+      <h2>Future Features</h2>
+      <ul>
+        <li><strong>Encrypted builds</strong> - Encrypt content to host's public key</li>
+        <li><strong>Shell server</strong> - Client-side decryption for E2E apps</li>
+        <li><strong>Domain proxy</strong> - Map custom domains to app pubkeys</li>
+        <li><strong>CLI tools</strong> - <code>btc build</code>, <code>btc publish</code>, <code>btc deploy</code></li>
+      </ul>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container">
+      <p>
+        Apps Firecat is open source.
+        <a href="https://github.com/anthropics/appsfirecat">View on GitHub</a>
+      </p>
+      <p class="meta">
+        This documentation is served via Apps Firecat itself.
+      </p>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,51 +1,8 @@
 /**
  * HTTP Header Utilities
  *
- * Handles generating appropriate cache and content headers for responses.
+ * Simple utilities for content type detection and cache headers.
  */
-
-import type { FileEntry, HeadersConfig, Manifest } from "./types.ts";
-
-/**
- * Default cache headers by file pattern.
- */
-const DEFAULT_CACHE_RULES: Array<{ pattern: RegExp; headers: Record<string, string> }> = [
-  // Hashed assets (e.g., main.abc123.js) - cache forever
-  {
-    pattern: /\.[a-f0-9]{6,}\.(js|css|woff2?|ttf|eot)$/i,
-    headers: {
-      "Cache-Control": "public, max-age=31536000, immutable",
-    },
-  },
-  // Images with hash
-  {
-    pattern: /\.[a-f0-9]{6,}\.(png|jpg|jpeg|gif|svg|webp|avif|ico)$/i,
-    headers: {
-      "Cache-Control": "public, max-age=31536000, immutable",
-    },
-  },
-  // HTML files - no cache, always revalidate
-  {
-    pattern: /\.html?$/i,
-    headers: {
-      "Cache-Control": "public, max-age=0, must-revalidate",
-    },
-  },
-  // JSON files - short cache
-  {
-    pattern: /\.json$/i,
-    headers: {
-      "Cache-Control": "public, max-age=60",
-    },
-  },
-  // Default for everything else
-  {
-    pattern: /.*/,
-    headers: {
-      "Cache-Control": "public, max-age=3600",
-    },
-  },
-];
 
 /**
  * Common MIME types by extension.
@@ -95,89 +52,51 @@ const MIME_TYPES: Record<string, string> = {
 /**
  * Get content type for a file path.
  */
-export function getContentType(filePath: string, fileEntry?: FileEntry): string {
-  // Prefer explicit content type from manifest
-  if (fileEntry?.contentType) {
-    return fileEntry.contentType;
-  }
-
-  // Derive from extension
+export function getContentType(filePath: string): string {
   const ext = filePath.substring(filePath.lastIndexOf(".")).toLowerCase();
   return MIME_TYPES[ext] ?? "application/octet-stream";
 }
 
 /**
  * Get cache headers for a file path.
+ * - Hashed assets: immutable, cache forever
+ * - HTML: short cache, must revalidate
+ * - Others: medium cache
  */
-export function getCacheHeaders(
-  filePath: string,
-  headersConfig?: HeadersConfig,
-): Record<string, string> {
-  // Check manifest patterns first
-  if (headersConfig?.patterns) {
-    for (const [pattern, headers] of Object.entries(headersConfig.patterns)) {
-      if (matchGlob(filePath, pattern)) {
-        return { ...headersConfig.default, ...headers };
-      }
-    }
+export function getCacheHeaders(filePath: string): Record<string, string> {
+  // Hashed assets (e.g., main.abc123.js)
+  if (/\.[a-f0-9]{6,}\.(js|css|woff2?|ttf|eot|png|jpg|jpeg|gif|svg|webp|avif|ico)$/i.test(filePath)) {
+    return { "Cache-Control": "public, max-age=31536000, immutable" };
   }
 
-  // Check manifest defaults
-  if (headersConfig?.default) {
-    return headersConfig.default;
+  // HTML - always revalidate
+  if (/\.html?$/i.test(filePath)) {
+    return { "Cache-Control": "public, max-age=0, must-revalidate" };
   }
 
-  // Use default rules
-  for (const rule of DEFAULT_CACHE_RULES) {
-    if (rule.pattern.test(filePath)) {
-      return rule.headers;
-    }
+  // JSON - short cache
+  if (/\.json$/i.test(filePath)) {
+    return { "Cache-Control": "public, max-age=60" };
   }
 
-  return {};
+  // Default
+  return { "Cache-Control": "public, max-age=3600" };
 }
 
 /**
- * Build full response headers for a file.
+ * Build response headers for a file.
  */
-export function buildResponseHeaders(
-  filePath: string,
-  fileEntry: FileEntry,
-  manifest: Manifest,
-  options?: {
-    etag?: string;
-    gzipped?: boolean;
-  },
-): Headers {
+export function buildResponseHeaders(filePath: string): Headers {
   const headers = new Headers();
 
-  // Content type
-  headers.set("Content-Type", getContentType(filePath, fileEntry));
+  headers.set("Content-Type", getContentType(filePath));
 
-  // Cache headers
-  const cacheHeaders = getCacheHeaders(filePath, manifest.headers);
+  const cacheHeaders = getCacheHeaders(filePath);
   for (const [key, value] of Object.entries(cacheHeaders)) {
     headers.set(key, value);
   }
 
-  // ETag if provided
-  if (options?.etag) {
-    headers.set("ETag", `"${options.etag}"`);
-  } else if (fileEntry.hash) {
-    // Use file hash as ETag
-    headers.set("ETag", `"${fileEntry.hash.substring(0, 16)}"`);
-  }
-
-  // Content encoding if gzipped
-  if (options?.gzipped || fileEntry.gzipped) {
-    headers.set("Content-Encoding", "gzip");
-  }
-
-  // Security headers
   headers.set("X-Content-Type-Options", "nosniff");
-
-  // CORS - allow all for static assets
-  // (The proxy layer can restrict this further)
   headers.set("Access-Control-Allow-Origin", "*");
 
   return headers;
@@ -191,20 +110,4 @@ export function buildErrorHeaders(): Headers {
   headers.set("Content-Type", "text/plain; charset=utf-8");
   headers.set("Cache-Control", "no-store");
   return headers;
-}
-
-/**
- * Simple glob pattern matching.
- * Supports: * (any chars), ** (any path segments)
- */
-function matchGlob(path: string, pattern: string): boolean {
-  // Convert glob to regex
-  const regexPattern = pattern
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&") // Escape special chars
-    .replace(/\*\*/g, "<<<GLOBSTAR>>>") // Temp placeholder
-    .replace(/\*/g, "[^/]*") // * matches anything except /
-    .replace(/<<<GLOBSTAR>>>/g, ".*"); // ** matches anything
-
-  const regex = new RegExp(`^${regexPattern}$`);
-  return regex.test(path);
 }

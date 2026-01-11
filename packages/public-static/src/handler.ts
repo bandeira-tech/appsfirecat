@@ -1,25 +1,21 @@
 /**
  * Request Handler for public-static host.
  *
- * Simple B3nd HTTP gateway - the URL path directly maps to B3nd URI.
+ * Simple B3nd HTTP gateway - the host has a target base URI,
+ * and HTTP request paths are appended to it.
  *
- * URL format: /{protocol}/{domain}/{path...}
- * Examples:
- *   /immutable/accounts/abc123/builds/def456/index.html
- *   /mutable/accounts/abc123/target
- *   /immutable/open/some/path
+ * Example:
+ *   target = "immutable://accounts/abc123/site/"
+ *   GET /index.html -> reads immutable://accounts/abc123/site/index.html
+ *   GET /css/styles.css -> reads immutable://accounts/abc123/site/css/styles.css
  */
 
 import {
   buildErrorHeaders,
-  buildResponseHeaders,
-  decrypt,
-  isEncrypted,
   type B3ndReader,
   type HostConfig,
   type HostInfoResponse,
-  type Manifest,
-} from "@appsfirecat/host-protocol";
+} from "../../host-protocol/mod.ts";
 
 /**
  * Authenticated message wrapper from B3nd.
@@ -37,6 +33,24 @@ function unwrapData<T>(data: T | AuthenticatedMessage<T>): T {
     return (data as AuthenticatedMessage<T>).payload;
   }
   return data as T;
+}
+
+/**
+ * Check if data is a link to another B3nd resource.
+ *
+ * A link is simply a string that is a B3nd URI.
+ * No special object format - just a plain URI string.
+ *
+ * Metadata, if needed, lives at a separate deterministic location
+ * (e.g., {resource}.meta or {resource}/_meta).
+ */
+function isLink(data: unknown): string | null {
+  if (typeof data === "string") {
+    if (data.startsWith("immutable://") || data.startsWith("mutable://")) {
+      return data;
+    }
+  }
+  return null;
 }
 
 /**
@@ -60,26 +74,38 @@ export function createHandler(
     if (path === "/_info") {
       return handleInfo(config);
     }
-
-    // Parse B3nd URI from path: /{protocol}/{domain}/{path...}
-    // e.g., /immutable/accounts/abc123/builds/def456/index.html
-    const match = path.match(/^\/([^/]+)\/(.+)$/);
-    if (!match) {
-      return new Response(
-        "Invalid path. Expected: /{protocol}/{domain}/{path...}\n" +
-        "Example: /immutable/accounts/{pubkey}/builds/{hash}/index.html",
-        { status: 400, headers: buildErrorHeaders() },
-      );
+    if (path === "/_target") {
+      return handleTarget(config);
     }
 
-    const protocol = match[1]; // "immutable" or "mutable"
-    const rest = match[2]; // "accounts/abc123/builds/def456/index.html"
+    // Resolve the target base URI
+    const target = await resolveTarget(client, config);
+    if (!target) {
+      return new Response("No target configured", {
+        status: 503,
+        headers: buildErrorHeaders(),
+      });
+    }
 
-    // Construct B3nd URI
-    const b3ndUri = `${protocol}://${rest}`;
+    // Build the full B3nd URI: target + request path
+    // Remove leading slash from path, ensure target ends with slash
+    const normalizedTarget = target.endsWith("/") ? target : `${target}/`;
+    const normalizedPath = path.startsWith("/") ? path.slice(1) : path;
+    const b3ndUri = `${normalizedTarget}${normalizedPath}`;
 
     try {
-      return await handleContent(client, config, b3ndUri);
+      // Try the exact path first
+      let response = await handleContent(client, b3ndUri);
+
+      // If not found and path looks like a directory, try index.html
+      if (response.status === 404) {
+        const indexUri = b3ndUri.endsWith("/")
+          ? `${b3ndUri}index.html`
+          : `${b3ndUri}/index.html`;
+        response = await handleContent(client, indexUri);
+      }
+
+      return response;
     } catch (error) {
       return handleError(error);
     }
@@ -87,51 +113,174 @@ export function createHandler(
 }
 
 /**
- * Handle content request - just read from B3nd and serve.
+ * Resolve the target base URI.
+ *
+ * Resolution rules:
+ * - If target ends with "/", use it directly as the base path
+ * - If target is mutable:// and doesn't end with "/", read it as a pointer
+ * - Otherwise use it directly
+ */
+async function resolveTarget(
+  client: B3ndReader,
+  config: HostConfig,
+): Promise<string | null> {
+  const { target } = config;
+  if (!target) return null;
+
+  // If target ends with "/", it's already a base path - use directly
+  if (target.endsWith("/")) {
+    return target;
+  }
+
+  // If target is mutable and doesn't end with "/", it's a pointer - resolve it
+  if (target.startsWith("mutable://")) {
+    const result = await client.read<string>(target);
+    if (result.success && result.record?.data) {
+      const resolved = unwrapData(result.record.data);
+      // The pointer should contain a URI string
+      if (typeof resolved === "string") {
+        return resolved;
+      }
+    }
+    // Fall through to use target directly if resolution fails
+  }
+
+  // Use target directly
+  return target;
+}
+
+/**
+ * Handle target endpoint - show current target config.
+ */
+function handleTarget(config: HostConfig): Response {
+  return new Response(config.target || "No target configured", {
+    status: config.target ? 200 : 404,
+    headers: { "Content-Type": "text/plain" },
+  });
+}
+
+/** Max depth for following links (prevent infinite loops) */
+const MAX_LINK_DEPTH = 5;
+
+/**
+ * Handle content request - read from B3nd, follow links, and serve.
+ *
+ * Link resolution:
+ * 1. Try exact URI first
+ * 2. If not found, walk up the path looking for a link
+ * 3. If link found, append remaining path and follow it
+ *
+ * Example:
+ *   Request: mutable://provider/hosted/user1/index.html
+ *   Not found, try: mutable://provider/hosted/user1
+ *   Found link: "immutable://user1/site/"
+ *   Follow: immutable://user1/site/index.html
  */
 async function handleContent(
   client: B3ndReader,
-  config: HostConfig,
   uri: string,
+  depth = 0,
 ): Promise<Response> {
-  // Read from B3nd
+  // Prevent infinite link loops
+  if (depth > MAX_LINK_DEPTH) {
+    return new Response(`Too many link redirects (max ${MAX_LINK_DEPTH})`, {
+      status: 508, // Loop Detected
+      headers: buildErrorHeaders(),
+    });
+  }
+
+  // Try exact URI first
   const result = await client.read<unknown>(uri);
 
-  if (!result.success) {
-    return new Response(`Not found: ${uri}\nError: ${result.error}`, {
-      status: 404,
-      headers: buildErrorHeaders(),
-    });
+  if (result.success && result.record?.data) {
+    const data = unwrapData(result.record.data);
+
+    // Check if this is a link
+    const linkTarget = isLink(data);
+    if (linkTarget) {
+      return handleContent(client, linkTarget, depth + 1);
+    }
+
+    // Not a link - serve the content
+    return serveContent(data, uri);
   }
 
-  if (!result.record?.data) {
-    return new Response(`No data at: ${uri}`, {
-      status: 404,
-      headers: buildErrorHeaders(),
-    });
+  // Not found - walk up path looking for a link
+  const linkResult = await findLinkInPath(client, uri);
+  if (linkResult) {
+    const { linkTarget, remainingPath } = linkResult;
+    const normalizedLink = linkTarget.endsWith("/") ? linkTarget : `${linkTarget}/`;
+    const newUri = `${normalizedLink}${remainingPath}`;
+    return handleContent(client, newUri, depth + 1);
   }
 
-  // Unwrap authenticated message
-  let data = unwrapData(result.record.data);
+  // No link found - return 404
+  return new Response(`Not found: ${uri}`, {
+    status: 404,
+    headers: buildErrorHeaders(),
+  });
+}
 
-  // Determine content type and format response
+/**
+ * Walk up the URI path looking for a link.
+ * Returns the link target and the remaining path to append.
+ */
+async function findLinkInPath(
+  client: B3ndReader,
+  uri: string,
+): Promise<{ linkTarget: string; remainingPath: string } | null> {
+  // Parse URI: protocol://domain/path/to/file
+  const match = uri.match(/^([^:]+:\/\/[^/]+)\/(.+)$/);
+  if (!match) return null;
+
+  const base = match[1]; // e.g., "mutable://accounts"
+  const fullPath = match[2]; // e.g., "provider/hosted/user1/index.html"
+  const segments = fullPath.split("/");
+
+  // Walk up from the deepest segment (excluding the last one which we already tried)
+  for (let i = segments.length - 1; i >= 1; i--) {
+    const checkPath = segments.slice(0, i).join("/");
+    const checkUri = `${base}/${checkPath}`;
+    const remainingPath = segments.slice(i).join("/");
+
+    const result = await client.read<unknown>(checkUri);
+    if (result.success && result.record?.data) {
+      const data = unwrapData(result.record.data);
+      const linkTarget = isLink(data);
+      if (linkTarget) {
+        return { linkTarget, remainingPath };
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Serve content with appropriate headers.
+ */
+function serveContent(data: unknown, uri: string): Response {
   const headers = new Headers();
 
   if (typeof data === "string") {
-    // String content - serve as text
     headers.set("Content-Type", getContentTypeFromUri(uri));
     headers.set("Cache-Control", getCacheControl(uri));
     return new Response(data, { status: 200, headers });
   }
 
-  if (data instanceof Uint8Array || ArrayBuffer.isView(data)) {
-    // Binary content
+  if (data instanceof Uint8Array) {
     headers.set("Content-Type", getContentTypeFromUri(uri));
     headers.set("Cache-Control", getCacheControl(uri));
-    return new Response(data as Uint8Array, { status: 200, headers });
+    return new Response(data, { status: 200, headers });
   }
 
-  // Object/JSON content - serve as JSON
+  if (ArrayBuffer.isView(data)) {
+    headers.set("Content-Type", getContentTypeFromUri(uri));
+    headers.set("Cache-Control", getCacheControl(uri));
+    return new Response(new Uint8Array(data.buffer, data.byteOffset, data.byteLength), { status: 200, headers });
+  }
+
+  // Object/JSON content
   headers.set("Content-Type", "application/json; charset=utf-8");
   headers.set("Cache-Control", getCacheControl(uri));
   return new Response(JSON.stringify(data, null, 2), { status: 200, headers });
@@ -189,7 +338,9 @@ async function handleHealth(
   try {
     // Simple connectivity check
     const result = await client.read("mutable://open/health");
-    backendStatus = "ok";
+    if (result.success) {
+      backendStatus = "ok";
+    }
   } catch {
     backendStatus = "error";
   }
@@ -227,7 +378,8 @@ function handleInfo(config: HostConfig): Response {
     pubkey: config.hostPubkey,
     type: "public-static",
     version: "0.1.0",
-    capabilities: ["decrypt", "preview"],
+    capabilities: ["decrypt"],
+    target: config.target,
   };
 
   return new Response(JSON.stringify(info, null, 2), {

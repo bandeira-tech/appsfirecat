@@ -2,7 +2,7 @@
  * Configuration for public-static host.
  */
 
-import type { HostConfig } from "@appsfirecat/host-protocol";
+import type { HostConfig } from "../../host-protocol/mod.ts";
 
 /**
  * Load configuration from environment variables.
@@ -23,42 +23,31 @@ export function loadConfig(): HostConfig {
     throw new Error("HOST_PUBKEY environment variable is required");
   }
 
+  const target = Deno.env.get("TARGET");
+  if (!target) {
+    throw new Error("TARGET environment variable is required");
+  }
+
   const port = parseInt(Deno.env.get("PORT") ?? "8080", 10);
-
-  const allowedApps = Deno.env.get("ALLOWED_APPS")
-    ?.split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  const targetCacheTtl = parseInt(
-    Deno.env.get("TARGET_CACHE_TTL") ?? "5000",
-    10,
-  );
-
-  const manifestCacheTtl = parseInt(
-    Deno.env.get("MANIFEST_CACHE_TTL") ?? "60000",
-    10,
-  );
 
   return {
     backendUrl,
     hostPrivateKey,
     hostPubkey,
+    target,
     port,
-    allowedApps,
-    targetCacheTtl,
-    manifestCacheTtl,
   };
 }
 
 /**
  * Create a default config for development.
  * Generates a random keypair if not provided.
- * Uses "open" URI pattern for testing without auth.
  */
 export async function loadDevConfig(): Promise<HostConfig> {
-  const backendUrl = Deno.env.get("BACKEND_URL") ?? "https://testnet-evergreen.fire.cat";
+  const backendUrl = Deno.env.get("BACKEND_URL") ??
+    "https://testnet-evergreen.fire.cat";
   const port = parseInt(Deno.env.get("PORT") ?? "8080", 10);
+  const target = Deno.env.get("TARGET"); // Optional in dev mode
 
   let hostPrivateKey = Deno.env.get("HOST_PRIVATE_KEY");
   let hostPubkey = Deno.env.get("HOST_PUBKEY");
@@ -75,21 +64,17 @@ export async function loadDevConfig(): Promise<HostConfig> {
     backendUrl,
     hostPrivateKey,
     hostPubkey,
+    target,
     port,
-    targetCacheTtl: 5000,
-    manifestCacheTtl: 60000,
-    uriPattern: "accounts", // Use accounts protocol with signed writes
   };
 }
 
 /**
  * Generate a random X25519 keypair for development.
- * For dev purposes, we just generate random 32-byte keys.
- * In production, use proper key generation.
  */
-async function generateDevKeypair(): Promise<{ privateKey: string; publicKey: string }> {
-  // For dev/testing, generate random bytes
-  // Real X25519 would clamp the private key, but for dev this is fine
+async function generateDevKeypair(): Promise<
+  { privateKey: string; publicKey: string }
+> {
   const privateKeyBytes = new Uint8Array(32);
   const publicKeyBytes = new Uint8Array(32);
   crypto.getRandomValues(privateKeyBytes);
