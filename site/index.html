@@ -4,271 +4,364 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Apps Firecat - Decentralized Static Hosting</title>
+  <meta name="description" content="Host your frontend apps on a decentralized network. No vendor lock-in, instant rollbacks, run your own infrastructure.">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header>
-    <div class="container">
-      <h1>Apps Firecat</h1>
-      <p class="tagline">Decentralized static hosting powered by B3nd</p>
+  <!-- Hero Section -->
+  <header class="hero">
+    <nav class="nav">
+      <div class="nav-brand">Apps Firecat</div>
+      <div class="nav-links">
+        <a href="#developers">Developers</a>
+        <a href="#providers">Providers</a>
+        <a href="#enterprise">Enterprise</a>
+        <a href="#docs">Docs</a>
+        <a href="https://github.com/bandeira-tech/appsfirecat" class="nav-cta">GitHub</a>
+      </div>
+    </nav>
+    <div class="hero-content">
+      <h1>Your Frontend,<br><span class="gradient-text">Truly Yours</span></h1>
+      <p class="hero-subtitle">
+        Decentralized static hosting powered by B3nd. No vendor lock-in.
+        Instant rollbacks. Anyone can run the infrastructure.
+      </p>
+      <div class="hero-cta">
+        <a href="#get-started" class="btn btn-primary">Get Started</a>
+        <a href="#how-it-works" class="btn btn-secondary">How It Works</a>
+      </div>
+      <div class="hero-stats">
+        <div class="stat">
+          <span class="stat-value">100%</span>
+          <span class="stat-label">Open Source</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value">0</span>
+          <span class="stat-label">Vendor Lock-in</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value">&lt;1s</span>
+          <span class="stat-label">Rollback Time</span>
+        </div>
+      </div>
     </div>
   </header>
 
-  <main class="container">
-    <section id="overview">
-      <h2>What is Apps Firecat?</h2>
-      <p>
-        Apps Firecat is a <strong>decentralized static hosting system</strong> that uses
-        <a href="https://b3nd.io">B3nd</a> as its content layer. Instead of storing your
-        built frontend in S3, R2, or a traditional CDN, you store it in B3nd's distributed
-        network and serve it through lightweight host servers.
-      </p>
-      <div class="highlight-box">
-        <h3>Key Benefits</h3>
-        <ul>
-          <li><strong>Decentralized storage</strong> - Content lives on B3nd, not vendor-locked</li>
-          <li><strong>Immutable builds</strong> - Each deployment is content-addressed</li>
-          <li><strong>Instant rollbacks</strong> - Just update a pointer</li>
-          <li><strong>Run your own host</strong> - Anyone can serve content</li>
-          <li><strong>Optional encryption</strong> - Encrypt builds to specific hosts</li>
-        </ul>
-      </div>
-    </section>
+  <!-- How It Works -->
+  <section id="how-it-works" class="section">
+    <div class="container">
+      <h2 class="section-title">How It Works</h2>
+      <p class="section-subtitle">Three simple concepts power decentralized hosting</p>
 
-    <section id="architecture">
-      <h2>How It Works</h2>
-      <div class="architecture-diagram">
-        <pre>
-Developer                    B3nd Network                 Host Server
-    |                            |                            |
-    |  1. Build frontend         |                            |
-    |  2. Sign & upload -------->|                            |
-    |     to accounts protocol   |                            |
-    |                            |                            |
-    |  3. Update target -------->|                            |
-    |     pointer (mutable)      |                            |
-    |                            |                            |
-    |                            |<---------- 4. Read target  |
-    |                            |<---------- 5. Read content |
-    |                            |                            |
-User -------------------------------------------------> 6. HTTP request
-    |                            |                            |
-    <-------------------------------------------------- 7. Serve content
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon">1</div>
+          <h3>Build & Sign</h3>
+          <p>Build your frontend with any tool. Sign it with your app's keypair. Your identity, your content.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">2</div>
+          <h3>Store in B3nd</h3>
+          <p>Upload to the decentralized B3nd network. Content-addressed, immutable, and always available.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">3</div>
+          <h3>Serve via Hosts</h3>
+          <p>Anyone can run a host server. Point it at your content. Instant global distribution.</p>
+        </div>
+      </div>
+
+      <div class="architecture-visual">
+        <pre class="code-block">
+Developer                     B3nd Network                    Host Servers
+    |                              |                               |
+    |  npm run build               |                               |
+    |  sign & upload ------------->|                               |
+    |                              |                               |
+    |  update target ------------->|                               |
+    |                              |                               |
+    |                              |<------------ read target -----|
+    |                              |<------------ read content ----|
+    |                              |                               |
+Users --------------------------------------------------------> HTTP request
+    |                              |                               |
+    <--------------------------------------------------------- Serve content
         </pre>
       </div>
+    </div>
+  </section>
 
-      <h3>The Layers</h3>
-      <div class="layers">
-        <div class="layer">
-          <h4>1. B3nd Content Layer</h4>
-          <p>Your builds are stored as signed, immutable content:</p>
-          <code>immutable://accounts/{appPubkey}/builds/{buildHash}/</code>
-          <p>A mutable pointer tracks the current version:</p>
-          <code>mutable://accounts/{appPubkey}/target</code>
-        </div>
+  <!-- For Developers -->
+  <section id="developers" class="section section-alt">
+    <div class="container">
+      <div class="audience-header">
+        <span class="audience-tag">For Developers</span>
+        <h2>Ship Frontend Apps Without the Platform Tax</h2>
+        <p>Your build process stays the same. Your deployment becomes unstoppable.</p>
+      </div>
 
-        <div class="layer">
-          <h4>2. Host Server</h4>
-          <p>A simple HTTP gateway that:</p>
-          <ul>
-            <li>Maps URL paths to B3nd URIs</li>
-            <li>Reads content from B3nd</li>
-            <li>Unwraps authenticated messages</li>
-            <li>Serves with appropriate headers</li>
+      <div class="two-col">
+        <div class="col">
+          <h3>What You Get</h3>
+          <ul class="check-list">
+            <li>Works with Vite, Next.js, any static build</li>
+            <li>Content-addressed builds - every deploy is immutable</li>
+            <li>Instant rollbacks - just update a pointer</li>
+            <li>No cold starts, no serverless complexity</li>
+            <li>Preview URLs for every build</li>
+            <li>Optional encryption for private apps</li>
           </ul>
         </div>
+        <div class="col">
+          <h3>Deploy in 3 Commands</h3>
+          <div class="code-example">
+            <pre><code># Build your app
+npm run build
 
-        <div class="layer">
-          <h4>3. Domain/Proxy Layer (Optional)</h4>
-          <p>Maps custom domains to specific app pubkeys using Caddy, Nginx, or Cloudflare.</p>
-        </div>
-      </div>
-    </section>
+# Deploy to B3nd
+deno run -A deploy.ts ./dist
 
-    <section id="url-format">
-      <h2>URL Format</h2>
-      <p>The host server uses a direct mapping from URL paths to B3nd URIs:</p>
-      <div class="code-block">
-        <code>/{protocol}/{domain}/{path...}</code>
-      </div>
-      <h3>Examples</h3>
-      <table>
-        <thead>
-          <tr>
-            <th>URL Path</th>
-            <th>B3nd URI</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><code>/immutable/accounts/abc.../builds/def.../index.html</code></td>
-            <td><code>immutable://accounts/abc.../builds/def.../index.html</code></td>
-          </tr>
-          <tr>
-            <td><code>/mutable/accounts/abc.../target</code></td>
-            <td><code>mutable://accounts/abc.../target</code></td>
-          </tr>
-        </tbody>
-      </table>
-    </section>
-
-    <section id="workflow">
-      <h2>Deployment Workflow</h2>
-      <div class="steps">
-        <div class="step">
-          <div class="step-number">1</div>
-          <div class="step-content">
-            <h4>Generate App Identity</h4>
-            <p>Create an Ed25519 keypair for your app. The public key becomes your app's permanent identity.</p>
-            <code>appPubkey = ed25519.generateKeypair().publicKey</code>
-          </div>
-        </div>
-
-        <div class="step">
-          <div class="step-number">2</div>
-          <div class="step-content">
-            <h4>Build Your Frontend</h4>
-            <p>Use your normal build process (Vite, Next.js, etc.) to generate static files.</p>
-            <code>npm run build</code>
-          </div>
-        </div>
-
-        <div class="step">
-          <div class="step-number">3</div>
-          <div class="step-content">
-            <h4>Upload to B3nd</h4>
-            <p>Sign and write each file to the accounts protocol. Generate a unique build hash.</p>
-            <code>immutable://accounts/{appPubkey}/builds/{buildHash}/{file}</code>
-          </div>
-        </div>
-
-        <div class="step">
-          <div class="step-number">4</div>
-          <div class="step-content">
-            <h4>Create Manifest</h4>
-            <p>Write a manifest.json listing all files with their content types.</p>
-          </div>
-        </div>
-
-        <div class="step">
-          <div class="step-number">5</div>
-          <div class="step-content">
-            <h4>Update Target</h4>
-            <p>Point the mutable target to your new build hash.</p>
-            <code>mutable://accounts/{appPubkey}/target -> { buildHash: "..." }</code>
-          </div>
-        </div>
-
-        <div class="step">
-          <div class="step-number">6</div>
-          <div class="step-content">
-            <h4>Access via Host</h4>
-            <p>Your app is now live at:</p>
-            <code>http://host:8080/immutable/accounts/{appPubkey}/builds/{buildHash}/</code>
+# Your app is live!
+# https://host.example.com/</code></pre>
           </div>
         </div>
       </div>
-    </section>
 
-    <section id="data-format">
-      <h2>Data Formats</h2>
+      <div class="cta-box">
+        <h3>Start Building Today</h3>
+        <p>Clone the starter template and deploy your first app in minutes.</p>
+        <a href="https://github.com/bandeira-tech/appsfirecat" class="btn btn-primary">View on GitHub</a>
+      </div>
+    </div>
+  </section>
 
-      <h3>Target Pointer</h3>
-      <p>Stored at <code>mutable://accounts/{appPubkey}/target</code></p>
-      <pre class="json">{
-  "buildHash": "d579cc964b2402bfbcf3415c42462c7e",
-  "version": "1.0.0",
-  "updatedAt": 1768052530917
-}</pre>
-
-      <h3>Manifest</h3>
-      <p>Stored at <code>immutable://accounts/{appPubkey}/builds/{hash}/manifest.json</code></p>
-      <pre class="json">{
-  "manifestVersion": "1",
-  "buildHash": "d579cc964b2402bfbcf3415c42462c7e",
-  "version": "1.0.0",
-  "createdAt": 1768052530000,
-  "files": {
-    "index.html": {
-      "size": 831,
-      "contentType": "text/html; charset=utf-8",
-      "encrypted": false
-    },
-    "styles.css": {
-      "size": 961,
-      "contentType": "text/css; charset=utf-8",
-      "encrypted": false
-    }
-  },
-  "routing": {
-    "spa": true,
-    "entrypoint": "index.html"
-  },
-  "encryption": {
-    "enabled": false
-  }
-}</pre>
-    </section>
-
-    <section id="running">
-      <h2>Running the Host Server</h2>
-
-      <h3>Development Mode</h3>
-      <pre class="bash">deno run -A packages/public-static/mod.ts --dev</pre>
-      <p>This generates a random keypair and connects to the Firecat testnet.</p>
-
-      <h3>Production Mode</h3>
-      <pre class="bash">BACKEND_URL=https://testnet-evergreen.fire.cat \
-HOST_PRIVATE_KEY=your-x25519-private-key-hex \
-HOST_PUBKEY=your-x25519-public-key-hex \
-PORT=8080 \
-deno run -A packages/public-static/mod.ts</pre>
-
-      <h3>System Endpoints</h3>
-      <table>
-        <thead>
-          <tr>
-            <th>Endpoint</th>
-            <th>Description</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><code>/_health</code></td>
-            <td>Health check with backend status</td>
-          </tr>
-          <tr>
-            <td><code>/_pubkey</code></td>
-            <td>Host's public key (for encryption)</td>
-          </tr>
-          <tr>
-            <td><code>/_info</code></td>
-            <td>Host info and capabilities</td>
-          </tr>
-        </tbody>
-      </table>
-    </section>
-
-    <section id="future">
-      <h2>Future Features</h2>
-      <ul>
-        <li><strong>Encrypted builds</strong> - Encrypt content to host's public key</li>
-        <li><strong>Shell server</strong> - Client-side decryption for E2E apps</li>
-        <li><strong>Domain proxy</strong> - Map custom domains to app pubkeys</li>
-        <li><strong>CLI tools</strong> - <code>btc build</code>, <code>btc publish</code>, <code>btc deploy</code></li>
-      </ul>
-    </section>
-  </main>
-
-  <footer>
+  <!-- For Service Providers -->
+  <section id="providers" class="section">
     <div class="container">
-      <p>
-        Apps Firecat is open source.
-        <a href="https://github.com/anthropics/appsfirecat">View on GitHub</a>
-      </p>
-      <p class="meta">
-        This documentation is served via Apps Firecat itself.
-      </p>
+      <div class="audience-header">
+        <span class="audience-tag">For Service Providers</span>
+        <h2>Run Hosting Infrastructure, Your Way</h2>
+        <p>Become a hosting provider without building the entire stack.</p>
+      </div>
+
+      <div class="two-col">
+        <div class="col">
+          <h3>The Provider Model</h3>
+          <p>Run host servers that serve content from B3nd. Accept hosting requests from developers. You control what you serve.</p>
+
+          <div class="flow-diagram">
+            <div class="flow-step">
+              <span class="flow-num">1</span>
+              <span>Developer requests hosting via your inbox</span>
+            </div>
+            <div class="flow-arrow">|</div>
+            <div class="flow-step">
+              <span class="flow-num">2</span>
+              <span>You approve by creating a link</span>
+            </div>
+            <div class="flow-arrow">|</div>
+            <div class="flow-step">
+              <span class="flow-num">3</span>
+              <span>Your host serves their content</span>
+            </div>
+          </div>
+        </div>
+        <div class="col">
+          <h3>Why Become a Provider?</h3>
+          <ul class="check-list">
+            <li>Minimal infrastructure - just run the host server</li>
+            <li>Content stored in B3nd - not your problem</li>
+            <li>Multi-tenant by default - host thousands of sites</li>
+            <li>Set your own terms and pricing</li>
+            <li>Geographic distribution - run hosts anywhere</li>
+            <li>Composable - combine with CDNs, edge networks</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="code-example provider-example">
+        <h4>Start a Host Server</h4>
+        <pre><code># Configure your target
+export TARGET="mutable://accounts/YOUR_PUBKEY/hosted/"
+export BACKEND_URL="https://testnet-evergreen.fire.cat"
+
+# Run the host
+deno run -A packages/public-static/mod.ts
+
+# Now serving at http://localhost:8080
+# Requests to /user1/* follow links to user content</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- For Enterprise -->
+  <section id="enterprise" class="section section-alt">
+    <div class="container">
+      <div class="audience-header">
+        <span class="audience-tag">For Enterprise</span>
+        <h2>Control Your Infrastructure, Not Your Vendor</h2>
+        <p>Run the same stack internally. Full control, full auditability.</p>
+      </div>
+
+      <div class="enterprise-grid">
+        <div class="enterprise-card">
+          <h3>Private Networks</h3>
+          <p>Run B3nd nodes internally. Your content never leaves your infrastructure. Same developer experience.</p>
+        </div>
+        <div class="enterprise-card">
+          <h3>Encrypted Builds</h3>
+          <p>Encrypt content to specific host keys. Only authorized hosts can serve. Perfect for internal apps.</p>
+        </div>
+        <div class="enterprise-card">
+          <h3>Audit Trail</h3>
+          <p>Every build is signed. Every deployment is traceable. Immutable history of what was deployed when.</p>
+        </div>
+        <div class="enterprise-card">
+          <h3>Compliance Ready</h3>
+          <p>Data residency under your control. Run hosts in specific regions. Meet regulatory requirements.</p>
+        </div>
+        <div class="enterprise-card">
+          <h3>No Vendor Lock-in</h3>
+          <p>Open source, open protocol. Migrate between providers or self-host. Your content is portable.</p>
+        </div>
+        <div class="enterprise-card">
+          <h3>Team Controls</h3>
+          <p>Keypair-based identity. Define who can deploy what. Integrate with existing auth systems.</p>
+        </div>
+      </div>
+
+      <div class="cta-box">
+        <h3>Talk to Us About Enterprise</h3>
+        <p>We'll help you evaluate Apps Firecat for your organization.</p>
+        <a href="mailto:hello@bandeira.tech" class="btn btn-primary">Contact Us</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Technical Details -->
+  <section id="docs" class="section">
+    <div class="container">
+      <h2 class="section-title">Under the Hood</h2>
+      <p class="section-subtitle">Simple primitives, powerful composition</p>
+
+      <div class="tech-grid">
+        <div class="tech-card">
+          <h3>URI-Based Routing</h3>
+          <p>Content lives at B3nd URIs. Hosts map HTTP paths to URIs. Simple, predictable, debuggable.</p>
+          <code>immutable://accounts/{pubkey}/site/index.html</code>
+        </div>
+        <div class="tech-card">
+          <h3>Link Following</h3>
+          <p>A URI string stored at a path becomes a link. Hosts follow links automatically. Enables delegation and multi-tenancy.</p>
+          <code>mutable://provider/hosted/user1 -> immutable://user1/site/</code>
+        </div>
+        <div class="tech-card">
+          <h3>Mutable Pointers</h3>
+          <p>Update what's live by updating a pointer. Old builds stay available. Rollback = update pointer.</p>
+          <code>mutable://accounts/{pubkey}/target -> current build URI</code>
+        </div>
+        <div class="tech-card">
+          <h3>Signed Content</h3>
+          <p>All writes to accounts are signed. Verify who published what. Cryptographic proof of origin.</p>
+          <code>{ auth: [{ pubkey, signature }], payload: content }</code>
+        </div>
+      </div>
+
+      <div class="docs-links">
+        <h3>Learn More</h3>
+        <div class="docs-grid">
+          <a href="/docs/quickstart" class="doc-link">
+            <span class="doc-icon">-></span>
+            <span>Quickstart Guide</span>
+          </a>
+          <a href="/docs/architecture" class="doc-link">
+            <span class="doc-icon">-></span>
+            <span>Architecture Deep Dive</span>
+          </a>
+          <a href="/docs/provider-guide" class="doc-link">
+            <span class="doc-icon">-></span>
+            <span>Provider Setup Guide</span>
+          </a>
+          <a href="/docs/api" class="doc-link">
+            <span class="doc-icon">-></span>
+            <span>API Reference</span>
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Get Started -->
+  <section id="get-started" class="section section-dark">
+    <div class="container">
+      <h2 class="section-title">Get Started</h2>
+      <p class="section-subtitle">Choose your path</p>
+
+      <div class="paths-grid">
+        <div class="path-card">
+          <h3>Deploy an App</h3>
+          <p>Get your frontend live on the decentralized web in minutes.</p>
+          <ol>
+            <li>Clone the starter</li>
+            <li>Build your app</li>
+            <li>Run the deploy script</li>
+          </ol>
+          <a href="https://github.com/bandeira-tech/appsfirecat#deploy-an-app" class="btn btn-outline">Start Deploying</a>
+        </div>
+        <div class="path-card">
+          <h3>Run a Host</h3>
+          <p>Serve content from B3nd over HTTP. Be part of the network.</p>
+          <ol>
+            <li>Install Deno</li>
+            <li>Configure your target</li>
+            <li>Start the server</li>
+          </ol>
+          <a href="https://github.com/bandeira-tech/appsfirecat#run-a-host" class="btn btn-outline">Run a Host</a>
+        </div>
+        <div class="path-card">
+          <h3>Become a Provider</h3>
+          <p>Host apps for others. Build a business on open infrastructure.</p>
+          <ol>
+            <li>Set up your account</li>
+            <li>Configure hosting links</li>
+            <li>Accept hosting requests</li>
+          </ol>
+          <a href="https://github.com/bandeira-tech/appsfirecat#provider-guide" class="btn btn-outline">Provider Guide</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <h3>Apps Firecat</h3>
+          <p>Decentralized static hosting for the open web.</p>
+        </div>
+        <div class="footer-links">
+          <h4>Product</h4>
+          <a href="#developers">For Developers</a>
+          <a href="#providers">For Providers</a>
+          <a href="#enterprise">For Enterprise</a>
+          <a href="#docs">Documentation</a>
+        </div>
+        <div class="footer-links">
+          <h4>Resources</h4>
+          <a href="https://github.com/bandeira-tech/appsfirecat">GitHub</a>
+          <a href="https://b3nd.io">B3nd Protocol</a>
+          <a href="https://fire.cat">Firecat Network</a>
+        </div>
+        <div class="footer-links">
+          <h4>Company</h4>
+          <a href="https://bandeira.tech">Bandeira Tech</a>
+          <a href="mailto:hello@bandeira.tech">Contact</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <p>Open source under MIT License. Built on B3nd & Firecat.</p>
+      </div>
     </div>
   </footer>
 </body>
