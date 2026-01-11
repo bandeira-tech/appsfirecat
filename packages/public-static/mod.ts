@@ -5,16 +5,20 @@
  * Decrypts content using the host's private key when content is encrypted.
  *
  * Usage:
+ *   # With .env file (recommended)
+ *   deno run -A mod.ts
+ *
+ *   # Or with environment variables
  *   BACKEND_URL=https://testnet-evergreen.fire.cat \
- *   HOST_PRIVATE_KEY=... \
- *   HOST_PUBKEY=... \
+ *   TARGET=mutable://accounts/{pubkey}/target \
  *   PORT=8080 \
  *   deno run -A mod.ts
  *
- * Or for development (generates random keypair):
+ * For development (generates random keypair):
  *   deno run -A mod.ts --dev
  */
 
+import "jsr:@std/dotenv/load";
 import { loadConfig, loadDevConfig } from "./src/config.ts";
 import { startServer } from "./src/server.ts";
 

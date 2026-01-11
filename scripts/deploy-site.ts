@@ -5,7 +5,7 @@
  * Usage:
  *   deno run -A scripts/deploy-site.ts
  *
- * Environment:
+ * Environment (via .env file or env vars):
  *   BACKEND_URL - B3nd backend URL (default: https://testnet-evergreen.fire.cat)
  *   SITE_PRIVATE_KEY - Site's Ed25519 private key (hex)
  *   SITE_PUBKEY - Site's Ed25519 public key (hex)
@@ -16,6 +16,7 @@
  *   TARGET=immutable://accounts/{pubkey}/site/ deno task start:public-static
  */
 
+import "jsr:@std/dotenv/load";
 import { HttpClient } from "jsr:@bandeira-tech/b3nd-sdk";
 import * as encrypt from "jsr:@bandeira-tech/b3nd-sdk/encrypt";
 import * as path from "jsr:@std/path";

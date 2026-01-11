@@ -8,6 +8,7 @@
  * 4. Request: GET /{userId}/index.html follows the link
  */
 
+import "jsr:@std/dotenv/load";
 import { HttpClient } from "jsr:@bandeira-tech/b3nd-sdk";
 import * as encrypt from "jsr:@bandeira-tech/b3nd-sdk/encrypt";
 
