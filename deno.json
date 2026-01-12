@@ -1,7 +1,5 @@
 {
-  "name": "@appsfirecat/monorepo",
-  "version": "0.1.0",
-  "workspaces": [
+  "workspace": [
     "./packages/host-protocol",
     "./packages/public-static"
   ],

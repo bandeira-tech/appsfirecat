@@ -63,6 +63,7 @@ async function readSiteFiles(): Promise<Map<string, string>> {
 
 /**
  * Sign and write data to B3nd.
+ * Returns true if written successfully, false if already exists.
  */
 async function signedWrite(
   client: HttpClient,
@@ -70,7 +71,7 @@ async function signedWrite(
   data: unknown,
   publicKeyHex: string,
   privateKeyHex: string,
-): Promise<void> {
+): Promise<boolean> {
   const signedMessage = await encrypt.createAuthenticatedMessageWithHex(
     data,
     publicKeyHex,
@@ -79,8 +80,13 @@ async function signedWrite(
 
   const result = await client.write(uri, signedMessage);
   if (!result.success) {
+    // Check if the error is because the immutable object already exists
+    if (result.error?.includes("immutable object exists")) {
+      return false; // Already exists
+    }
     throw new Error(`Failed to write ${uri}: ${result.error}`);
   }
+  return true;
 }
 
 async function main() {
@@ -126,11 +132,32 @@ async function main() {
   // Upload each file
   console.log("Uploading files...");
 
+  let uploadedCount = 0;
+  let skippedCount = 0;
+
   for (const [filename, content] of files) {
     const uri = `${siteBase}/${filename}`;
-    console.log(`  ${filename} -> ${uri.substring(0, 60)}...`);
+    const wasWritten = await signedWrite(
+      client,
+      uri,
+      content,
+      publicKeyHex,
+      privateKeyHex,
+    );
 
-    await signedWrite(client, uri, content, publicKeyHex, privateKeyHex);
+    if (wasWritten) {
+      console.log(`  ${filename} -> uploaded`);
+      uploadedCount++;
+    } else {
+      console.log(`  ${filename} -> already exists (skipped)`);
+      skippedCount++;
+    }
+  }
+
+  if (skippedCount > 0) {
+    console.log(
+      `\n${uploadedCount} files uploaded, ${skippedCount} already existed.`,
+    );
   }
 
   // Update the mutable target pointer (just a string pointing to the site)

@@ -2,7 +2,8 @@
   "version": "5",
   "specifiers": {
     "jsr:@bandeira-tech/b3nd-sdk@*": "0.4.0",
-    "jsr:@hono/hono@4": "4.11.3"
+    "jsr:@hono/hono@4": "4.11.3",
+    "jsr:@std/dotenv@*": "0.225.6"
   },
   "jsr": {
     "@bandeira-tech/b3nd-sdk@0.4.0": {
@@ -10,6 +11,9 @@
     },
     "@hono/hono@4.11.3": {
       "integrity": "de7f245516a970c60c6f4bf5b0f1585efbee38ee4e01171994c2b9d69d035d70"
+    },
+    "@std/dotenv@0.225.6": {
+      "integrity": "1d6f9db72f565bd26790fa034c26e45ecb260b5245417be76c2279e5734c421b"
     }
   }
 }

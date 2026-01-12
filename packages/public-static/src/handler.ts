@@ -36,6 +36,15 @@ function unwrapData<T>(data: T | AuthenticatedMessage<T>): T {
 }
 
 /**
+ * Check if a path has a file extension.
+ * Used to distinguish files from directories when deciding whether to try index.html.
+ */
+function hasFileExtension(path: string): boolean {
+  const lastSegment = path.split("/").pop() ?? "";
+  return lastSegment.includes(".");
+}
+
+/**
  * Check if data is a link to another B3nd resource.
  *
  * A link is simply a string that is a B3nd URI.
@@ -97,8 +106,8 @@ export function createHandler(
       // Try the exact path first
       let response = await handleContent(client, b3ndUri);
 
-      // If not found and path looks like a directory, try index.html
-      if (response.status === 404) {
+      // If not found and path looks like a directory (not a file), try index.html
+      if (response.status === 404 && !hasFileExtension(normalizedPath)) {
         const indexUri = b3ndUri.endsWith("/")
           ? `${b3ndUri}index.html`
           : `${b3ndUri}/index.html`;
