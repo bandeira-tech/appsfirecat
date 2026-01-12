@@ -1,0 +1,34 @@
+# Environment
+.env
+.env.*
+
+# Git
+.git
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build outputs
+dist/
+build/
+
+# Tests
+**/tests/
+**/*.test.ts
+
+# Scripts (not needed in container)
+scripts/
+
+# Site content (deployed separately)
+site/
+
+# Docs
+*.md
