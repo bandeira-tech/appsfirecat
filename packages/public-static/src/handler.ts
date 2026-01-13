@@ -75,7 +75,7 @@ export function createHandler(
 
     // API v1 endpoints
     if (path === "/api/v1/health") {
-      return handleHealth(client, config);
+      return handleHealth(config);
     }
     if (path === "/api/v1/info") {
       return handleInfo(config);
@@ -87,38 +87,59 @@ export function createHandler(
       return handleTarget(config);
     }
 
-    // Resolve the target base URI
-    const target = await resolveTarget(client, config);
-    if (!target) {
-      return new Response("No target configured", {
-        status: 503,
-        headers: buildErrorHeaders(),
-      });
+    // Content serving: /api/v1/serve/*
+    if (path.startsWith("/api/v1/serve/") || path === "/api/v1/serve") {
+      return handleServe(client, config, path);
     }
 
-    // Build the full B3nd URI: target + request path
-    // Remove leading slash from path, ensure target ends with slash
-    const normalizedTarget = target.endsWith("/") ? target : `${target}/`;
-    const normalizedPath = path.startsWith("/") ? path.slice(1) : path;
-    const b3ndUri = `${normalizedTarget}${normalizedPath}`;
-
-    try {
-      // Try the exact path first
-      let response = await handleContent(client, b3ndUri);
-
-      // If not found and path looks like a directory (not a file), try index.html
-      if (response.status === 404 && !hasFileExtension(normalizedPath)) {
-        const indexUri = b3ndUri.endsWith("/")
-          ? `${b3ndUri}index.html`
-          : `${b3ndUri}/index.html`;
-        response = await handleContent(client, indexUri);
-      }
-
-      return response;
-    } catch (error) {
-      return handleError(error);
-    }
+    // Unknown endpoint
+    return new Response("Not found", {
+      status: 404,
+      headers: buildErrorHeaders(),
+    });
   };
+}
+
+/**
+ * Handle content serving via /api/v1/serve/*
+ */
+async function handleServe(
+  client: B3ndReader,
+  config: HostConfig,
+  path: string,
+): Promise<Response> {
+  // Extract the content path from /api/v1/serve/...
+  const contentPath = path.replace(/^\/api\/v1\/serve\/?/, "");
+
+  // Resolve the target base URI
+  const target = await resolveTarget(client, config);
+  if (!target) {
+    return new Response("No target configured", {
+      status: 503,
+      headers: buildErrorHeaders(),
+    });
+  }
+
+  // Build the full B3nd URI: target + content path
+  const normalizedTarget = target.endsWith("/") ? target : `${target}/`;
+  const b3ndUri = `${normalizedTarget}${contentPath}`;
+
+  try {
+    // Try the exact path first
+    let response = await handleContent(client, b3ndUri);
+
+    // If not found and path looks like a directory (not a file), try index.html
+    if (response.status === 404 && !hasFileExtension(contentPath)) {
+      const indexUri = b3ndUri.endsWith("/")
+        ? `${b3ndUri}index.html`
+        : `${b3ndUri}/index.html`;
+      response = await handleContent(client, indexUri);
+    }
+
+    return response;
+  } catch (error) {
+    return handleError(error);
+  }
 }
 
 /**
@@ -339,15 +360,15 @@ function getCacheControl(uri: string): string {
  * Handle health check.
  */
 async function handleHealth(
-  client: B3ndReader,
   config: HostConfig,
 ): Promise<Response> {
   let backendStatus: "ok" | "error" = "error";
 
   try {
-    // Simple connectivity check
-    const result = await client.read("mutable://open/health");
-    if (result.success) {
+    // Check backend health endpoint
+    const healthUrl = `${config.backendUrl}/api/v1/health`;
+    const res = await fetch(healthUrl);
+    if (res.ok) {
       backendStatus = "ok";
     }
   } catch {
