@@ -1,19 +1,19 @@
 #!/usr/bin/env -S deno run -A
 /**
- * Deploy the documentation site to B3nd.
+ * Deploy static files to B3nd.
  *
  * Usage:
  *   deno run -A scripts/deploy-site.ts
+ *   deno run -A scripts/deploy-site.ts [source-dir]
  *
  * Environment (via .env file or env vars):
- *   BACKEND_URL - B3nd backend URL (default: https://testnet-evergreen.fire.cat)
- *   SITE_PRIVATE_KEY - Site's Ed25519 private key (hex)
- *   SITE_PUBKEY - Site's Ed25519 public key (hex)
+ *   BACKEND_URL    - B3nd backend URL (default: https://testnet-evergreen.fire.cat)
+ *   SITE_PUBKEY    - Ed25519 public key (hex)
+ *   SITE_PRIVATE_KEY - Ed25519 private key (hex)
+ *   DEPLOY_TARGET  - Target URI (default: immutable://accounts/{pubkey}/site)
+ *                    Use {pubkey} as placeholder for the signing key
  *
  * If keys are not provided, generates new ones and prints them.
- *
- * After deploying, set TARGET to serve from this site:
- *   TARGET=immutable://accounts/{pubkey}/site/ deno task start:public-static
  */
 
 import "jsr:@std/dotenv/load";
@@ -23,7 +23,7 @@ import * as path from "jsr:@std/path";
 
 const BACKEND_URL = Deno.env.get("BACKEND_URL") ||
   "https://testnet-evergreen.fire.cat";
-const SITE_DIR = path.join(Deno.cwd(), "site");
+const DEFAULT_TARGET = "immutable://accounts/{pubkey}/site";
 
 /**
  * Get content type from file extension.
@@ -45,14 +45,14 @@ function getContentType(filename: string): string {
 }
 
 /**
- * Read all files from the site directory.
+ * Read all files from a directory (non-recursive).
  */
-async function readSiteFiles(): Promise<Map<string, string>> {
+async function readSiteFiles(dir: string): Promise<Map<string, string>> {
   const files = new Map<string, string>();
 
-  for await (const entry of Deno.readDir(SITE_DIR)) {
+  for await (const entry of Deno.readDir(dir)) {
     if (entry.isFile) {
-      const filePath = path.join(SITE_DIR, entry.name);
+      const filePath = path.join(dir, entry.name);
       const content = await Deno.readTextFile(filePath);
       files.set(entry.name, content);
     }
@@ -90,44 +90,53 @@ async function signedWrite(
 }
 
 async function main() {
-  console.log("=== Apps Firecat Site Deployer ===\n");
+  console.log("=== B3nd Static Site Deployer ===\n");
+
+  // Get source directory from args or default to "site"
+  const sourceDir = Deno.args[0] || path.join(Deno.cwd(), "site");
 
   // Get or generate keypair
   let publicKeyHex = Deno.env.get("SITE_PUBKEY");
   let privateKeyHex = Deno.env.get("SITE_PRIVATE_KEY");
 
   if (!publicKeyHex || !privateKeyHex) {
-    console.log("No site keys provided, generating new keypair...\n");
+    console.log("No keys provided, generating new keypair...\n");
     const keypair = await encrypt.generateSigningKeyPair();
     publicKeyHex = keypair.publicKeyHex;
     privateKeyHex = keypair.privateKeyHex;
 
-    console.log("Generated new site identity:");
+    console.log("Generated new identity:");
     console.log(`  SITE_PUBKEY=${publicKeyHex}`);
     console.log(`  SITE_PRIVATE_KEY=${privateKeyHex}`);
     console.log("\nSave these to reuse the same identity!\n");
   }
 
-  console.log(`Site pubkey: ${publicKeyHex.substring(0, 16)}...`);
-  console.log(`Backend: ${BACKEND_URL}\n`);
+  // Get target, replace {pubkey} placeholder
+  const targetTemplate = Deno.env.get("DEPLOY_TARGET") || DEFAULT_TARGET;
+  const target = targetTemplate.replace(/\{pubkey\}/g, publicKeyHex);
+
+  console.log(`Source:  ${sourceDir}`);
+  console.log(`Target:  ${target}`);
+  console.log(`Backend: ${BACKEND_URL}`);
+  console.log(`Pubkey:  ${publicKeyHex.substring(0, 16)}...\n`);
 
   // Create B3nd client
   const client = new HttpClient({ url: BACKEND_URL });
 
   // Read site files
-  console.log("Reading site files...");
-  const files = await readSiteFiles();
+  console.log("Reading files...");
+  const files = await readSiteFiles(sourceDir);
   console.log(
     `Found ${files.size} files: ${Array.from(files.keys()).join(", ")}\n`,
   );
 
   if (files.size === 0) {
-    console.error("No files found in site/ directory!");
+    console.error(`No files found in ${sourceDir}!`);
     Deno.exit(1);
   }
 
-  // Upload to a simple path: immutable://accounts/{pubkey}/site/
-  const siteBase = `immutable://accounts/${publicKeyHex}/site`;
+  // Normalize target (ensure no trailing slash for building URIs)
+  const targetBase = target.endsWith("/") ? target.slice(0, -1) : target;
 
   // Upload each file
   console.log("Uploading files...");
@@ -136,7 +145,7 @@ async function main() {
   let skippedCount = 0;
 
   for (const [filename, content] of files) {
-    const uri = `${siteBase}/${filename}`;
+    const uri = `${targetBase}/${filename}`;
     const wasWritten = await signedWrite(
       client,
       uri,
@@ -160,27 +169,14 @@ async function main() {
     );
   }
 
-  // Update the mutable target pointer (just a string pointing to the site)
-  console.log("\nUpdating target pointer...");
-  const targetUri = `mutable://accounts/${publicKeyHex}/target`;
-  const targetValue = `${siteBase}/`; // Just a string!
-
-  await signedWrite(client, targetUri, targetValue, publicKeyHex, privateKeyHex);
-  console.log(`  target -> "${targetValue}"`);
-
   // Print access info
   console.log("\n=== Deployment Complete ===\n");
 
-  console.log("To serve this site, run:\n");
-  console.log(`  TARGET="${siteBase}/" deno task start:public-static\n`);
+  console.log("To serve this content:\n");
+  console.log(`  TARGET="${targetBase}/" deno task start:public-static\n`);
 
-  console.log("Or use the mutable pointer (auto-resolves):\n");
-  console.log(`  TARGET="${targetUri}" deno task start:public-static\n`);
-
-  console.log("Then access:");
-  console.log("  http://localhost:8080/");
-  console.log("  http://localhost:8080/index.html");
-  console.log("  http://localhost:8080/styles.css");
+  console.log("Or via API:");
+  console.log(`  GET /api/v1/serve/index.html`);
 }
 
 main().catch((err) => {
