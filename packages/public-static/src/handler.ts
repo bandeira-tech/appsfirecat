@@ -73,18 +73,24 @@ export function createHandler(
     const url = new URL(req.url);
     const path = url.pathname;
 
-    // System endpoints
-    if (path === "/_health") {
+    // API v1 endpoints
+    if (path === "/api/v1/health") {
       return handleHealth(client, config);
     }
-    if (path === "/_pubkey") {
-      return handlePubkey(config);
-    }
-    if (path === "/_info") {
+    if (path === "/api/v1/info") {
       return handleInfo(config);
     }
-    if (path === "/_target") {
+    if (path === "/api/v1/pubkey") {
+      return handlePubkey(config);
+    }
+    if (path === "/api/v1/target") {
       return handleTarget(config);
+    }
+
+    // Legacy endpoints (redirect to new API)
+    if (path === "/_health" || path === "/_info" || path === "/_pubkey" || path === "/_target") {
+      const newPath = path.replace(/^\/_/, "/api/v1/");
+      return Response.redirect(new URL(newPath, req.url).toString(), 301);
     }
 
     // Resolve the target base URI

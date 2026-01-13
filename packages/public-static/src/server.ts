@@ -61,14 +61,14 @@ export function startServer(config: HostConfig) {
 ║  Pubkey:   ${config.hostPubkey.substring(0, 16)}...${" ".repeat(24)}║
 ╚═══════════════════════════════════════════════════════════╝
 
-The host serves content from: target + request_path
+Content: GET /* serves from target + path
 Example: GET /index.html -> reads {target}/index.html
 
-System endpoints:
-  GET /_health    Health check
-  GET /_pubkey    Get host public key
-  GET /_info      Get host info
-  GET /_target    Show current target
+API v1:
+  GET /api/v1/health    Health check
+  GET /api/v1/info      Host info & capabilities
+  GET /api/v1/pubkey    Host public key
+  GET /api/v1/target    Current target URI
 
 Ready to serve!
 `);
