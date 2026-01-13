@@ -10,8 +10,8 @@
  *   BACKEND_URL    - B3nd backend URL (default: https://testnet-evergreen.fire.cat)
  *   SITE_PUBKEY    - Ed25519 public key (hex)
  *   SITE_PRIVATE_KEY - Ed25519 private key (hex)
- *   DEPLOY_TARGET  - Target URI (default: immutable://accounts/{pubkey}/site)
- *                    Use {pubkey} as placeholder for the signing key
+ *   DEPLOY_TARGET  - Target URI (default: immutable://accounts/:key/site)
+ *                    Use :key as placeholder for the signing key
  *
  * If keys are not provided, generates new ones and prints them.
  */
@@ -23,7 +23,7 @@ import * as path from "jsr:@std/path";
 
 const BACKEND_URL = Deno.env.get("BACKEND_URL") ||
   "https://testnet-evergreen.fire.cat";
-const DEFAULT_TARGET = "immutable://accounts/{pubkey}/site";
+const DEFAULT_TARGET = "immutable://accounts/:key/site";
 
 /**
  * Get content type from file extension.
@@ -111,7 +111,7 @@ async function main() {
     console.log("\nSave these to reuse the same identity!\n");
   }
 
-  // Get target, replace {pubkey} placeholder
+  // Get target, replace :key placeholder
   const targetTemplate = Deno.env.get("DEPLOY_TARGET") || DEFAULT_TARGET;
   const target = targetTemplate.replace(/\{pubkey\}/g, publicKeyHex);
 
