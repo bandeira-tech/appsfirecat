@@ -87,12 +87,6 @@ export function createHandler(
       return handleTarget(config);
     }
 
-    // Legacy endpoints (redirect to new API)
-    if (path === "/_health" || path === "/_info" || path === "/_pubkey" || path === "/_target") {
-      const newPath = path.replace(/^\/_/, "/api/v1/");
-      return Response.redirect(new URL(newPath, req.url).toString(), 301);
-    }
-
     // Resolve the target base URI
     const target = await resolveTarget(client, config);
     if (!target) {
