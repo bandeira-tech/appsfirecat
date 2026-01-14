@@ -10,12 +10,20 @@
  * 2. Custom Domain Mode:
  *    - Host header is looked up in B3nd domain registry
  *    - Content served directly at / (no /api/v1/serve/ prefix)
- *    - Registry: mutable://open/domains/{domain} → target URI
+ *    - Registry: mutable://open/domains/{domain} → base URI
  *
- * Example:
+ * Protocol-based resolution:
+ *   - link://... → read value (a URI), recursively resolve
+ *   - blob://... → read binary content, serve with MIME from path context
+ *   - mutable://, immutable:// → read and serve directly
+ *
+ * Example with blobs + links:
  *   custom.example.com → lookup mutable://open/domains/custom.example.com
- *   Found: "immutable://accounts/abc123/site/"
- *   GET /index.html → reads immutable://accounts/abc123/site/index.html
+ *   Found base: "link://accounts/abc123/mysite/v1234567890/"
+ *   Request: /css/styles.css
+ *   Compose: link://accounts/abc123/mysite/v1234567890/css/styles.css
+ *   Read link → "blob://open/sha256:def456..."
+ *   Read blob → serve CSS content
  */
 
 import {
@@ -60,21 +68,12 @@ function hasFileExtension(path: string): boolean {
 }
 
 /**
- * Check if data is a link to another B3nd resource.
- *
- * A link is simply a string that is a B3nd URI.
- * No special object format - just a plain URI string.
- *
- * Metadata, if needed, lives at a separate deterministic location
- * (e.g., {resource}.meta or {resource}/_meta).
+ * Extract the protocol from a URI.
+ * Example: "link://accounts/foo" → "link"
  */
-function isLink(data: unknown): string | null {
-  if (typeof data === "string") {
-    if (data.startsWith("immutable://") || data.startsWith("mutable://")) {
-      return data;
-    }
-  }
-  return null;
+function getProtocol(uri: string): string {
+  const match = uri.match(/^([a-z]+):\/\//);
+  return match ? match[1] : "";
 }
 
 /**
@@ -176,23 +175,8 @@ async function handleServe(
     });
   }
 
-  // Build the full B3nd URI: target + content path
-  const normalizedTarget = target.endsWith("/") ? target : `${target}/`;
-  const b3ndUri = `${normalizedTarget}${contentPath}`;
-
   try {
-    // Try the exact path first
-    let response = await handleContent(client, b3ndUri);
-
-    // If not found and path looks like a directory (not a file), try index.html
-    if (response.status === 404 && !hasFileExtension(contentPath)) {
-      const indexUri = b3ndUri.endsWith("/")
-        ? `${b3ndUri}index.html`
-        : `${b3ndUri}/index.html`;
-      response = await handleContent(client, indexUri);
-    }
-
-    return response;
+    return await handleContent(client, target, contentPath);
   } catch (error) {
     return handleError(error);
   }
@@ -238,6 +222,9 @@ async function resolveTarget(
 /**
  * Handle custom domain requests.
  * Looks up domain mapping in B3nd and serves content.
+ *
+ * The domain mapping contains a base URI (e.g., "link://accounts/.../v123/")
+ * that we compose with the request path to get the full URI to resolve.
  */
 async function handleCustomDomain(
   client: B3ndReader,
@@ -260,12 +247,12 @@ async function handleCustomDomain(
 
   const data = unwrapData(result.record.data);
 
-  // Support both simple string (just the target) and object with metadata
-  let target: string;
+  // Support both simple string (just the base URI) and object with metadata
+  let baseUri: string;
   if (typeof data === "string") {
-    target = data;
+    baseUri = data;
   } else if (data && typeof data === "object" && "target" in data) {
-    target = data.target;
+    baseUri = data.target;
   } else {
     return new Response(`Invalid domain mapping for: ${domain}`, {
       status: 500,
@@ -276,23 +263,8 @@ async function handleCustomDomain(
   // Build content path (remove leading slash)
   const contentPath = path === "/" ? "" : path.slice(1);
 
-  // Build full B3nd URI
-  const normalizedTarget = target.endsWith("/") ? target : `${target}/`;
-  const b3ndUri = contentPath ? `${normalizedTarget}${contentPath}` : normalizedTarget;
-
   try {
-    // Try the exact path first
-    let response = await handleContent(client, b3ndUri);
-
-    // If not found and path looks like a directory, try index.html
-    if (response.status === 404 && !hasFileExtension(contentPath)) {
-      const indexUri = b3ndUri.endsWith("/")
-        ? `${b3ndUri}index.html`
-        : `${b3ndUri}/index.html`;
-      response = await handleContent(client, indexUri);
-    }
-
-    return response;
+    return await handleContent(client, baseUri, contentPath);
   } catch (error) {
     return handleError(error);
   }
@@ -343,28 +315,28 @@ function handleTarget(config: HostConfig): Response {
 }
 
 /** Max depth for following links (prevent infinite loops) */
-const MAX_LINK_DEPTH = 5;
+const MAX_LINK_DEPTH = 10;
 
 /**
- * Handle content request - read from B3nd, follow links, and serve.
+ * Resolve a URI based on its protocol.
  *
- * Link resolution:
- * 1. Try exact URI first
- * 2. If not found, walk up the path looking for a link
- * 3. If link found, append remaining path and follow it
+ * Protocol-based resolution:
+ *   - link://... → read value (a URI string), recursively resolve that URI
+ *   - blob://... → read binary content, return as-is
+ *   - mutable://, immutable:// → read and return as-is (no automatic following)
  *
- * Example:
- *   Request: mutable://provider/hosted/user1/index.html
- *   Not found, try: mutable://provider/hosted/user1
- *   Found link: "immutable://user1/site/"
- *   Follow: immutable://user1/site/index.html
+ * @param client - B3nd client
+ * @param uri - The URI to resolve
+ * @param originalPath - Original request path for MIME type inference
+ * @param depth - Current recursion depth
  */
-async function handleContent(
+async function resolveByProtocol(
   client: B3ndReader,
   uri: string,
+  originalPath: string,
   depth = 0,
 ): Promise<Response> {
-  // Prevent infinite link loops
+  // Prevent infinite loops
   if (depth > MAX_LINK_DEPTH) {
     return new Response(`Too many link redirects (max ${MAX_LINK_DEPTH})`, {
       status: 508, // Loop Detected
@@ -372,71 +344,103 @@ async function handleContent(
     });
   }
 
-  // Try exact URI first
-  const result = await client.read<unknown>(uri);
+  const protocol = getProtocol(uri);
 
-  if (result.success && result.record?.data) {
-    const data = unwrapData(result.record.data);
+  switch (protocol) {
+    case "link": {
+      // link:// protocol - read value and follow it
+      const result = await client.read<unknown>(uri);
 
-    // Check if this is a link
-    const linkTarget = isLink(data);
-    if (linkTarget) {
-      return handleContent(client, linkTarget, depth + 1);
+      if (!result.success || !result.record?.data) {
+        return new Response(`Link not found: ${uri}`, {
+          status: 404,
+          headers: buildErrorHeaders(),
+        });
+      }
+
+      const data = unwrapData(result.record.data);
+
+      // Link value must be a string URI
+      if (typeof data !== "string") {
+        return new Response(`Invalid link value at ${uri}: expected URI string`, {
+          status: 500,
+          headers: buildErrorHeaders(),
+        });
+      }
+
+      // Recursively resolve the target URI
+      return resolveByProtocol(client, data, originalPath, depth + 1);
     }
 
-    // Not a link - serve the content
-    return serveContent(data, uri);
-  }
+    case "blob": {
+      // blob:// protocol - read and serve binary content
+      const result = await client.read<unknown>(uri);
 
-  // Not found - walk up path looking for a link
-  const linkResult = await findLinkInPath(client, uri);
-  if (linkResult) {
-    const { linkTarget, remainingPath } = linkResult;
-    const normalizedLink = linkTarget.endsWith("/") ? linkTarget : `${linkTarget}/`;
-    const newUri = `${normalizedLink}${remainingPath}`;
-    return handleContent(client, newUri, depth + 1);
-  }
+      if (!result.success || !result.record?.data) {
+        return new Response(`Blob not found: ${uri}`, {
+          status: 404,
+          headers: buildErrorHeaders(),
+        });
+      }
 
-  // No link found - return 404
-  return new Response(`Not found: ${uri}`, {
-    status: 404,
-    headers: buildErrorHeaders(),
-  });
+      // Unwrap auth wrapper if present, then serve content
+      const data = unwrapData(result.record.data);
+      return serveContent(data, originalPath);
+    }
+
+    case "mutable":
+    case "immutable": {
+      // Direct storage - read and serve as-is (no automatic link following)
+      const result = await client.read<unknown>(uri);
+
+      if (!result.success || !result.record?.data) {
+        return new Response(`Not found: ${uri}`, {
+          status: 404,
+          headers: buildErrorHeaders(),
+        });
+      }
+
+      const data = unwrapData(result.record.data);
+      return serveContent(data, originalPath || uri);
+    }
+
+    default:
+      return new Response(`Unsupported protocol: ${protocol}`, {
+        status: 400,
+        headers: buildErrorHeaders(),
+      });
+  }
 }
 
 /**
- * Walk up the URI path looking for a link.
- * Returns the link target and the remaining path to append.
+ * Handle content request - compose URI from base + path, then resolve by protocol.
+ *
+ * @param client - B3nd client
+ * @param baseUri - Base URI (from domain mapping or config target)
+ * @param contentPath - Content path to append
  */
-async function findLinkInPath(
+async function handleContent(
   client: B3ndReader,
-  uri: string,
-): Promise<{ linkTarget: string; remainingPath: string } | null> {
-  // Parse URI: protocol://domain/path/to/file
-  const match = uri.match(/^([^:]+:\/\/[^/]+)\/(.+)$/);
-  if (!match) return null;
+  baseUri: string,
+  contentPath: string,
+): Promise<Response> {
+  // Compose full URI: base + path
+  const normalizedBase = baseUri.endsWith("/") ? baseUri : `${baseUri}/`;
+  const fullUri = contentPath ? `${normalizedBase}${contentPath}` : normalizedBase;
 
-  const base = match[1]; // e.g., "mutable://accounts"
-  const fullPath = match[2]; // e.g., "provider/hosted/user1/index.html"
-  const segments = fullPath.split("/");
+  // Try exact path first
+  let response = await resolveByProtocol(client, fullUri, contentPath);
 
-  // Walk up from the deepest segment (excluding the last one which we already tried)
-  for (let i = segments.length - 1; i >= 1; i--) {
-    const checkPath = segments.slice(0, i).join("/");
-    const checkUri = `${base}/${checkPath}`;
-    const remainingPath = segments.slice(i).join("/");
-
-    const result = await client.read<unknown>(checkUri);
-    if (result.success && result.record?.data) {
-      const data = unwrapData(result.record.data);
-      const linkTarget = isLink(data);
-      if (linkTarget) {
-        return { linkTarget, remainingPath };
-      }
-    }
+  // If not found and path looks like a directory, try index.html
+  if (response.status === 404 && !hasFileExtension(contentPath)) {
+    // Normalize: remove trailing slash before adding /index.html
+    const basePath = contentPath.replace(/\/$/, "");
+    const indexPath = basePath ? `${basePath}/index.html` : "index.html";
+    const indexUri = `${normalizedBase}${indexPath}`;
+    response = await resolveByProtocol(client, indexUri, indexPath);
   }
 
-  return null;
+  return response;
 }
 
 /**
@@ -524,22 +528,18 @@ function getContentTypeFromUri(uri: string): string {
 }
 
 /**
- * Determine cache control based on URI.
+ * Determine cache control based on path and context.
+ * Uses the original request path for cache decisions since blob URIs
+ * don't have meaningful extensions.
  */
-function getCacheControl(uri: string): string {
-  // Mutable content - short cache
-  if (uri.startsWith("mutable://")) {
-    return "public, max-age=5";
-  }
-
-  // Immutable content - can cache longer
-  // Check for hashed assets
-  const path = uri.split("/").pop() ?? "";
-  if (/\.[a-f0-9]{6,}\.(js|css|woff2?)$/i.test(path)) {
+function getCacheControl(path: string): string {
+  // Check for hashed assets (e.g., styles.abc123.css)
+  const filename = path.split("/").pop() ?? "";
+  if (/\.[a-f0-9]{6,}\.(js|css|woff2?)$/i.test(filename)) {
     return "public, max-age=31536000, immutable";
   }
 
-  // Default for immutable
+  // Default - reasonable cache for static sites
   return "public, max-age=3600";
 }
 

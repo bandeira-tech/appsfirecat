@@ -328,66 +328,50 @@ Deno.test("returns 503 when no target configured", async () => {
 });
 
 // =============================================================================
-// Link Following
+// Link Protocol Following
 // =============================================================================
+// Note: Only link:// protocol URIs are followed automatically.
+// mutable:// and immutable:// URIs serve content directly.
 
-Deno.test("follows simple link (URI string)", async () => {
+Deno.test("follows link:// protocol", async () => {
   const client = new MockB3ndClient();
-  // Content at the target is a link
-  client.set("immutable://test/site/redirect", "immutable://other/site/");
-  client.set("immutable://other/site/index.html", "<html>Linked</html>");
+  // link:// protocol with direct file mapping - typical deploy pattern
+  // Each file has its own link pointing to immutable content
+  client.set("link://test/site/index.html", "immutable://other/content");
+  client.set("immutable://other/content", "<html>Linked</html>");
 
-  const config = createTestConfig({ target: "immutable://test/site/" });
+  const config = createTestConfig({ target: "link://test/site/" });
   const handler = createHandler(client, config);
 
-  const response = await handler(createRequest("/api/v1/serve/redirect"));
+  const response = await handler(createRequest("/api/v1/serve/index.html"));
 
   assertEquals(response.status, 200);
   assertEquals(await response.text(), "<html>Linked</html>");
 });
 
-Deno.test("follows link with path resolution", async () => {
+Deno.test("follows link with blob target", async () => {
   const client = new MockB3ndClient();
-  // Link at directory level
-  client.set("mutable://provider/hosted/user1", "immutable://user1/site/");
-  client.set("immutable://user1/site/index.html", "<html>User1 Home</html>");
-  client.set("immutable://user1/site/about.html", "<html>User1 About</html>");
+  // link -> blob (typical deploy pattern)
+  client.set("link://accounts/abc/mysite/v1/index.html", "blob://open/sha256:abc123");
+  client.set("blob://open/sha256:abc123", "<html>From Blob</html>");
 
-  const config = createTestConfig({ target: "mutable://provider/hosted/" });
+  const config = createTestConfig({ target: "link://accounts/abc/mysite/v1/" });
   const handler = createHandler(client, config);
 
-  // Request for file inside linked directory
-  const response1 = await handler(createRequest("/api/v1/serve/user1/index.html"));
-  assertEquals(response1.status, 200);
-  assertEquals(await response1.text(), "<html>User1 Home</html>");
-
-  const response2 = await handler(createRequest("/api/v1/serve/user1/about.html"));
-  assertEquals(response2.status, 200);
-  assertEquals(await response2.text(), "<html>User1 About</html>");
-});
-
-Deno.test("follows link with directory index fallback", async () => {
-  const client = new MockB3ndClient();
-  client.set("mutable://provider/hosted/user1", "immutable://user1/site/");
-  client.set("immutable://user1/site/index.html", "<html>User1 Home</html>");
-
-  const config = createTestConfig({ target: "mutable://provider/hosted/" });
-  const handler = createHandler(client, config);
-
-  // Request for directory (should serve index.html)
-  const response = await handler(createRequest("/api/v1/serve/user1/"));
+  const response = await handler(createRequest("/api/v1/serve/index.html"));
 
   assertEquals(response.status, 200);
-  assertEquals(await response.text(), "<html>User1 Home</html>");
+  assertEquals(await response.text(), "<html>From Blob</html>");
 });
 
 Deno.test("follows chained links", async () => {
   const client = new MockB3ndClient();
-  client.set("immutable://test/site/link1", "immutable://test/site/link2");
-  client.set("immutable://test/site/link2", "immutable://test/site/final/");
-  client.set("immutable://test/site/final/index.html", "<html>Final</html>");
+  // link -> link -> blob
+  client.set("link://test/site/link1", "link://test/site/link2");
+  client.set("link://test/site/link2", "blob://open/sha256:final");
+  client.set("blob://open/sha256:final", "<html>Final</html>");
 
-  const config = createTestConfig({ target: "immutable://test/site/" });
+  const config = createTestConfig({ target: "link://test/site/" });
   const handler = createHandler(client, config);
 
   const response = await handler(createRequest("/api/v1/serve/link1"));
@@ -398,15 +382,13 @@ Deno.test("follows chained links", async () => {
 
 Deno.test("stops at max link depth to prevent infinite loops", async () => {
   const client = new MockB3ndClient();
-  // Create a loop
-  client.set("immutable://test/site/loop1", "immutable://test/site/loop2");
-  client.set("immutable://test/site/loop2", "immutable://test/site/loop3");
-  client.set("immutable://test/site/loop3", "immutable://test/site/loop4");
-  client.set("immutable://test/site/loop4", "immutable://test/site/loop5");
-  client.set("immutable://test/site/loop5", "immutable://test/site/loop6");
-  client.set("immutable://test/site/loop6", "immutable://test/site/loop1"); // Loop back
+  // Create a link loop (links pointing to each other)
+  for (let i = 1; i <= 15; i++) {
+    client.set(`link://test/site/loop${i}`, `link://test/site/loop${i + 1}`);
+  }
+  client.set("link://test/site/loop16", "link://test/site/loop1"); // Loop back
 
-  const config = createTestConfig({ target: "immutable://test/site/" });
+  const config = createTestConfig({ target: "link://test/site/" });
   const handler = createHandler(client, config);
 
   const response = await handler(createRequest("/api/v1/serve/loop1"));
@@ -415,18 +397,34 @@ Deno.test("stops at max link depth to prevent infinite loops", async () => {
   assertStringIncludes(await response.text(), "Too many link redirects");
 });
 
-Deno.test("does not treat regular strings as links", async () => {
+Deno.test("does not follow immutable:// values as links", async () => {
   const client = new MockB3ndClient();
-  // A string that doesn't start with a protocol
-  client.set("immutable://test/site/text.txt", "Hello, this is plain text");
+  // immutable:// stores a string that looks like a URI - should NOT follow it
+  client.set("immutable://test/site/pointer.txt", "immutable://other/site/");
 
   const config = createTestConfig({ target: "immutable://test/site/" });
   const handler = createHandler(client, config);
 
-  const response = await handler(createRequest("/api/v1/serve/text.txt"));
+  const response = await handler(createRequest("/api/v1/serve/pointer.txt"));
 
+  // Should serve the string directly, not follow it
   assertEquals(response.status, 200);
-  assertEquals(await response.text(), "Hello, this is plain text");
+  assertEquals(await response.text(), "immutable://other/site/");
+});
+
+Deno.test("does not follow mutable:// values as links", async () => {
+  const client = new MockB3ndClient();
+  // mutable:// stores a string - should NOT follow it
+  client.set("mutable://test/config", "immutable://some/content/");
+
+  const config = createTestConfig({ target: "mutable://test/" });
+  const handler = createHandler(client, config);
+
+  const response = await handler(createRequest("/api/v1/serve/config"));
+
+  // Should serve the string directly
+  assertEquals(response.status, 200);
+  assertEquals(await response.text(), "immutable://some/content/");
 });
 
 // =============================================================================
@@ -436,17 +434,20 @@ Deno.test("does not treat regular strings as links", async () => {
 Deno.test("service provider flow: host multiple users", async () => {
   const client = new MockB3ndClient();
 
-  // Provider hosts links to users
-  client.set("mutable://accounts/provider/hosted/alice", "immutable://accounts/alice/site/");
-  client.set("mutable://accounts/provider/hosted/bob", "immutable://accounts/bob/site/");
+  // Provider hosts using link:// protocol with direct file mappings
+  // Each hosted file has a link pointing to the user's content
+  client.set("link://accounts/provider/hosted/alice/index.html", "blob://sha256:alice-index");
+  client.set("link://accounts/provider/hosted/alice/styles.css", "blob://sha256:alice-styles");
+  client.set("link://accounts/provider/hosted/bob/index.html", "blob://sha256:bob-index");
+  client.set("link://accounts/provider/hosted/bob/app.js", "blob://sha256:bob-app");
 
-  // User content
-  client.set("immutable://accounts/alice/site/index.html", "<html>Alice's Site</html>");
-  client.set("immutable://accounts/alice/site/styles.css", ".alice { color: pink; }");
-  client.set("immutable://accounts/bob/site/index.html", "<html>Bob's Site</html>");
-  client.set("immutable://accounts/bob/site/app.js", "console.log('bob');");
+  // Content blobs
+  client.set("blob://sha256:alice-index", "<html>Alice's Site</html>");
+  client.set("blob://sha256:alice-styles", ".alice { color: pink; }");
+  client.set("blob://sha256:bob-index", "<html>Bob's Site</html>");
+  client.set("blob://sha256:bob-app", "console.log('bob');");
 
-  const config = createTestConfig({ target: "mutable://accounts/provider/hosted/" });
+  const config = createTestConfig({ target: "link://accounts/provider/hosted/" });
   const handler = createHandler(client, config);
 
   // Access Alice's site
@@ -472,10 +473,10 @@ Deno.test("service provider flow: 404 for non-hosted user", async () => {
   const client = new MockB3ndClient();
 
   // Provider only hosts alice
-  client.set("mutable://accounts/provider/hosted/alice", "immutable://accounts/alice/site/");
-  client.set("immutable://accounts/alice/site/index.html", "<html>Alice's Site</html>");
+  client.set("link://accounts/provider/hosted/alice/index.html", "blob://sha256:alice");
+  client.set("blob://sha256:alice", "<html>Alice's Site</html>");
 
-  const config = createTestConfig({ target: "mutable://accounts/provider/hosted/" });
+  const config = createTestConfig({ target: "link://accounts/provider/hosted/" });
   const handler = createHandler(client, config);
 
   // Try to access non-hosted user
@@ -507,17 +508,17 @@ Deno.test("unwraps authenticated message format", async () => {
 
 Deno.test("unwraps nested authenticated link", async () => {
   const client = new MockB3ndClient();
-  // Link wrapped in auth format
-  client.set("mutable://provider/hosted/user1", {
+  // Link:// protocol with auth-wrapped target
+  client.set("link://provider/hosted/user1/index.html", {
     auth: [{ pubkey: "provider", signature: "sig" }],
-    payload: "immutable://user1/site/",
+    payload: "blob://sha256:user1-index",
   });
-  client.set("immutable://user1/site/index.html", {
+  client.set("blob://sha256:user1-index", {
     auth: [{ pubkey: "user1", signature: "sig" }],
     payload: "<html>User Content</html>",
   });
 
-  const config = createTestConfig({ target: "mutable://provider/hosted/" });
+  const config = createTestConfig({ target: "link://provider/hosted/" });
   const handler = createHandler(client, config);
 
   const response = await handler(createRequest("/api/v1/serve/user1/"));
@@ -530,8 +531,10 @@ Deno.test("unwraps nested authenticated link", async () => {
 // Cache Headers
 // =============================================================================
 
-Deno.test("sets short cache for mutable content", async () => {
+Deno.test("sets standard cache for non-hashed content", async () => {
   const client = new MockB3ndClient();
+  // Cache is now path-based, not protocol-based
+  // Non-hashed files get 1 hour cache regardless of protocol
   client.set("mutable://test/site/index.html", "<html>Mutable</html>");
 
   const config = createTestConfig({ target: "mutable://test/site/" });
@@ -539,7 +542,7 @@ Deno.test("sets short cache for mutable content", async () => {
 
   const response = await handler(createRequest("/api/v1/serve/index.html"));
 
-  assertEquals(response.headers.get("cache-control"), "public, max-age=5");
+  assertEquals(response.headers.get("cache-control"), "public, max-age=3600");
 });
 
 Deno.test("sets longer cache for immutable content", async () => {
