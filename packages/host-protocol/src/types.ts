@@ -30,6 +30,13 @@ export interface HostConfig {
 
   /** Host's X25519 private key (hex) - for decryption */
   hostPrivateKey: string;
+
+  /**
+   * Primary domain for API endpoints.
+   * Requests to other domains are treated as custom domain lookups.
+   * If not set, defaults to *.fire.cat and localhost.
+   */
+  primaryDomain?: string;
 }
 
 /**

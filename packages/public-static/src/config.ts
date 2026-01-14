@@ -29,6 +29,7 @@ export function loadConfig(): HostConfig {
   }
 
   const port = parseInt(Deno.env.get("PORT") ?? "8080", 10);
+  const primaryDomain = Deno.env.get("PRIMARY_DOMAIN");
 
   return {
     backendUrl,
@@ -36,6 +37,7 @@ export function loadConfig(): HostConfig {
     hostPubkey,
     target,
     port,
+    primaryDomain,
   };
 }
 
@@ -48,6 +50,7 @@ export async function loadDevConfig(): Promise<HostConfig> {
     "https://testnet-evergreen.fire.cat";
   const port = parseInt(Deno.env.get("PORT") ?? "8080", 10);
   const target = Deno.env.get("TARGET"); // Optional in dev mode
+  const primaryDomain = Deno.env.get("PRIMARY_DOMAIN");
 
   let hostPrivateKey = Deno.env.get("HOST_PRIVATE_KEY");
   let hostPubkey = Deno.env.get("HOST_PUBKEY");
@@ -66,6 +69,7 @@ export async function loadDevConfig(): Promise<HostConfig> {
     hostPubkey,
     target,
     port,
+    primaryDomain,
   };
 }
 

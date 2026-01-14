@@ -1,0 +1,15 @@
+{
+  "name": "@appsfirecat/cli",
+  "version": "0.1.0",
+  "exports": "./mod.ts",
+  "tasks": {
+    "dev": "deno run -A ./mod.ts"
+  },
+  "imports": {
+    "@std/cli": "jsr:@std/cli@^1.0.0",
+    "@std/path": "jsr:@std/path@^1.0.0",
+    "@std/fs": "jsr:@std/fs@^1.0.0",
+    "@bandeira-tech/b3nd-sdk": "jsr:@bandeira-tech/b3nd-sdk",
+    "@host-protocol": "../host-protocol/mod.ts"
+  }
+}

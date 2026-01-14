@@ -1,13 +1,21 @@
 /**
  * Request Handler for public-static host.
  *
- * Simple B3nd HTTP gateway - the host has a target base URI,
- * and HTTP request paths are appended to it.
+ * Supports two modes:
+ *
+ * 1. API Mode (primary domain):
+ *    - /api/v1/health, /api/v1/info, etc.
+ *    - /api/v1/serve/* serves from configured TARGET
+ *
+ * 2. Custom Domain Mode:
+ *    - Host header is looked up in B3nd domain registry
+ *    - Content served directly at / (no /api/v1/serve/ prefix)
+ *    - Registry: mutable://open/domains/{domain} → target URI
  *
  * Example:
- *   target = "immutable://accounts/abc123/site/"
- *   GET /index.html -> reads immutable://accounts/abc123/site/index.html
- *   GET /css/styles.css -> reads immutable://accounts/abc123/site/css/styles.css
+ *   custom.example.com → lookup mutable://open/domains/custom.example.com
+ *   Found: "immutable://accounts/abc123/site/"
+ *   GET /index.html → reads immutable://accounts/abc123/site/index.html
  */
 
 import {
@@ -16,6 +24,13 @@ import {
   type HostConfig,
   type HostInfoResponse,
 } from "../../host-protocol/mod.ts";
+
+/** Domain mapping stored in B3nd */
+interface DomainMapping {
+  target: string;
+  owner?: string;
+  created?: number;
+}
 
 /**
  * Authenticated message wrapper from B3nd.
@@ -63,6 +78,31 @@ function isLink(data: unknown): string | null {
 }
 
 /**
+ * Check if a host is a custom domain (not the primary/API domain).
+ *
+ * Primary domain: where API endpoints are served (/api/v1/*)
+ * Custom domains: looked up in B3nd registry, content served at /
+ */
+function isCustomDomain(host: string, config: HostConfig): boolean {
+  // Strip port if present
+  const domain = host.split(":")[0].toLowerCase();
+
+  // Always treat localhost as primary (for dev)
+  if (domain === "localhost" || domain === "127.0.0.1") {
+    return false;
+  }
+
+  // If primary domain is configured, only that is primary
+  if (config.primaryDomain) {
+    return domain !== config.primaryDomain.toLowerCase();
+  }
+
+  // No primary domain configured - treat ALL domains as custom
+  // This allows any domain to be served via registry lookup
+  return true;
+}
+
+/**
  * Create a request handler for the public-static host.
  */
 export function createHandler(
@@ -73,7 +113,18 @@ export function createHandler(
     const url = new URL(req.url);
     const path = url.pathname;
 
-    // API v1 endpoints
+    // Get original host from headers
+    // Cloudflare Tunnels preserve Host header, but check X-Forwarded-Host as fallback
+    const host = req.headers.get("host") ||
+      req.headers.get("x-forwarded-host") ||
+      "";
+
+    // Check if this is a custom domain request
+    if (isCustomDomain(host, config)) {
+      return handleCustomDomain(client, host, path);
+    }
+
+    // API v1 endpoints (primary domain)
     if (path === "/api/v1/health") {
       return handleHealth(config);
     }
@@ -85,6 +136,11 @@ export function createHandler(
     }
     if (path === "/api/v1/target") {
       return handleTarget(config);
+    }
+
+    // Domain check endpoint for TLS validation (Caddy on_demand)
+    if (path === "/api/v1/domain-check") {
+      return handleDomainCheck(client, url);
     }
 
     // Content serving: /api/v1/serve/*
@@ -177,6 +233,103 @@ async function resolveTarget(
 
   // Use target directly
   return target;
+}
+
+/**
+ * Handle custom domain requests.
+ * Looks up domain mapping in B3nd and serves content.
+ */
+async function handleCustomDomain(
+  client: B3ndReader,
+  host: string,
+  path: string,
+): Promise<Response> {
+  // Strip port if present
+  const domain = host.split(":")[0].toLowerCase();
+
+  // Look up domain mapping in B3nd
+  const mappingUri = `mutable://open/domains/${domain}`;
+  const result = await client.read<DomainMapping | string>(mappingUri);
+
+  if (!result.success || !result.record?.data) {
+    return new Response(`Domain not configured: ${domain}`, {
+      status: 404,
+      headers: buildErrorHeaders(),
+    });
+  }
+
+  const data = unwrapData(result.record.data);
+
+  // Support both simple string (just the target) and object with metadata
+  let target: string;
+  if (typeof data === "string") {
+    target = data;
+  } else if (data && typeof data === "object" && "target" in data) {
+    target = data.target;
+  } else {
+    return new Response(`Invalid domain mapping for: ${domain}`, {
+      status: 500,
+      headers: buildErrorHeaders(),
+    });
+  }
+
+  // Build content path (remove leading slash)
+  const contentPath = path === "/" ? "" : path.slice(1);
+
+  // Build full B3nd URI
+  const normalizedTarget = target.endsWith("/") ? target : `${target}/`;
+  const b3ndUri = contentPath ? `${normalizedTarget}${contentPath}` : normalizedTarget;
+
+  try {
+    // Try the exact path first
+    let response = await handleContent(client, b3ndUri);
+
+    // If not found and path looks like a directory, try index.html
+    if (response.status === 404 && !hasFileExtension(contentPath)) {
+      const indexUri = b3ndUri.endsWith("/")
+        ? `${b3ndUri}index.html`
+        : `${b3ndUri}/index.html`;
+      response = await handleContent(client, indexUri);
+    }
+
+    return response;
+  } catch (error) {
+    return handleError(error);
+  }
+}
+
+/**
+ * Handle domain check for TLS validation.
+ * Used by Caddy's on_demand TLS to verify domain ownership.
+ */
+async function handleDomainCheck(
+  client: B3ndReader,
+  url: URL,
+): Promise<Response> {
+  const domain = url.searchParams.get("domain");
+
+  if (!domain) {
+    return new Response("Missing domain parameter", {
+      status: 400,
+      headers: { "Content-Type": "text/plain" },
+    });
+  }
+
+  // Check if domain is registered in B3nd
+  const mappingUri = `mutable://open/domains/${domain.toLowerCase()}`;
+  const result = await client.read<DomainMapping | string>(mappingUri);
+
+  if (result.success && result.record?.data) {
+    return new Response("OK", {
+      status: 200,
+      headers: { "Content-Type": "text/plain" },
+    });
+  }
+
+  return new Response("Domain not registered", {
+    status: 404,
+    headers: { "Content-Type": "text/plain" },
+  });
 }
 
 /**
