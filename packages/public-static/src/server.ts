@@ -6,7 +6,7 @@
 
 import { Hono } from "jsr:@hono/hono@^4";
 import { cors } from "jsr:@hono/hono@^4/cors";
-import { HttpClient } from "jsr:@bandeira-tech/b3nd-sdk";
+import { HttpClient } from "@bandeira-tech/b3nd-sdk";
 import type { HostConfig } from "../../host-protocol/mod.ts";
 import { createHandler } from "./handler.ts";
 
