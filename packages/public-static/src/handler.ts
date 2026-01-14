@@ -454,13 +454,14 @@ function serveContent(data: unknown, uri: string): Response {
   if (data instanceof Uint8Array) {
     headers.set("Content-Type", getContentTypeFromUri(uri));
     headers.set("Cache-Control", getCacheControl(uri));
-    return new Response(data, { status: 200, headers });
+    return new Response(data as unknown as BodyInit, { status: 200, headers });
   }
 
   if (ArrayBuffer.isView(data)) {
     headers.set("Content-Type", getContentTypeFromUri(uri));
     headers.set("Cache-Control", getCacheControl(uri));
-    return new Response(new Uint8Array(data.buffer, data.byteOffset, data.byteLength), { status: 200, headers });
+    const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    return new Response(bytes as unknown as BodyInit, { status: 200, headers });
   }
 
   // Object/JSON content
@@ -470,23 +471,56 @@ function serveContent(data: unknown, uri: string): Response {
 }
 
 /**
+ * MIME type mapping from file extension.
+ */
+const MIME_TYPES: Record<string, string> = {
+  // Text
+  html: "text/html; charset=utf-8",
+  htm: "text/html; charset=utf-8",
+  css: "text/css; charset=utf-8",
+  js: "application/javascript; charset=utf-8",
+  mjs: "application/javascript; charset=utf-8",
+  json: "application/json; charset=utf-8",
+  xml: "application/xml; charset=utf-8",
+  txt: "text/plain; charset=utf-8",
+  md: "text/markdown; charset=utf-8",
+  csv: "text/csv; charset=utf-8",
+  // Images
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  svg: "image/svg+xml",
+  ico: "image/x-icon",
+  avif: "image/avif",
+  // Fonts
+  woff: "font/woff",
+  woff2: "font/woff2",
+  ttf: "font/ttf",
+  otf: "font/otf",
+  eot: "application/vnd.ms-fontobject",
+  // Audio/Video
+  mp3: "audio/mpeg",
+  mp4: "video/mp4",
+  webm: "video/webm",
+  ogg: "audio/ogg",
+  wav: "audio/wav",
+  // Other
+  wasm: "application/wasm",
+  pdf: "application/pdf",
+  zip: "application/zip",
+  gz: "application/gzip",
+  tar: "application/x-tar",
+};
+
+/**
  * Guess content type from URI path.
  */
 function getContentTypeFromUri(uri: string): string {
   const path = uri.split("/").pop() ?? "";
-
-  if (path.endsWith(".html")) return "text/html; charset=utf-8";
-  if (path.endsWith(".css")) return "text/css; charset=utf-8";
-  if (path.endsWith(".js")) return "application/javascript; charset=utf-8";
-  if (path.endsWith(".json")) return "application/json; charset=utf-8";
-  if (path.endsWith(".png")) return "image/png";
-  if (path.endsWith(".jpg") || path.endsWith(".jpeg")) return "image/jpeg";
-  if (path.endsWith(".gif")) return "image/gif";
-  if (path.endsWith(".svg")) return "image/svg+xml";
-  if (path.endsWith(".woff2")) return "font/woff2";
-  if (path.endsWith(".woff")) return "font/woff";
-
-  return "application/octet-stream";
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  return MIME_TYPES[ext] || "application/octet-stream";
 }
 
 /**
